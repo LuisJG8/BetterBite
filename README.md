@@ -78,17 +78,11 @@ pnpm build
 
 Type-check and build the web app into `dist/`.
 
-## Demo Barcodes
+## Trying a Product Lookup
 
-If you do not have a real barcode handy, use one of these built-in demo barcodes:
+Product lookup uses Open Food Facts, so use a real packaged-food barcode when trying the app. Internet access is required for barcode lookups.
 
-- `000000000101` - Neon Cola
-- `000000000303` - Blazing Cheese Puffs
-- `000000000505` - Chewy Chocolate Chip Granola Bar
-- `000000000808` - Honey Greek Yogurt
-- `000000001010` - Organic Apple Slices
-
-Real product lookups use Open Food Facts, so internet access is needed for non-demo barcodes.
+If a barcode is not available in Open Food Facts, the app will show a product-not-found message.
 
 ## Troubleshooting
 
