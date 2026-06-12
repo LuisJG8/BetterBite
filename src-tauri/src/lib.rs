@@ -564,7 +564,7 @@ mod tests {
         let previous_len = body.len();
 
         assert_eq!(
-            append_bounded_response_chunk(&mut body, &[b'x']).unwrap_err(),
+            append_bounded_response_chunk(&mut body, b"x").unwrap_err(),
             "Open Food Facts response was too large."
         );
         assert_eq!(body.len(), previous_len);
