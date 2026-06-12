@@ -106,6 +106,10 @@ export function reduceFoodSearchState(state: FoodSearchState, action: FoodSearch
         error: null,
       };
     case "searchSucceeded":
+      if (!isCurrentSearchCompletion(state, action.query)) {
+        return state;
+      }
+
       return {
         ...state,
         submittedQuery: action.query,
@@ -115,6 +119,10 @@ export function reduceFoodSearchState(state: FoodSearchState, action: FoodSearch
         error: null,
       };
     case "searchFailed":
+      if (!isCurrentSearchCompletion(state, action.query)) {
+        return state;
+      }
+
       return {
         ...state,
         submittedQuery: action.query,
@@ -128,6 +136,10 @@ export function reduceFoodSearchState(state: FoodSearchState, action: FoodSearch
     case "detailClosed":
       return { ...state, selectedResult: null };
   }
+}
+
+function isCurrentSearchCompletion(state: FoodSearchState, query: string): boolean {
+  return state.status === "loading" && state.submittedQuery === query && state.query.trim() === query;
 }
 
 export function mapTypesenseFoodHit(hit: SearchResponseHit<FoodSearchDocument>): FoodSearchResult | null {

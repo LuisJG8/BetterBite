@@ -98,6 +98,15 @@ describe("typesense food search helpers", () => {
     expect(reset).toMatchObject({ query: " ", status: "idle", results: [], selectedResult: null });
   });
 
+  it("ignores stale search completions after the query changes", () => {
+    const withQuery = reduceFoodSearchState(INITIAL_FOOD_SEARCH_STATE, { type: "queryChanged", query: "chips" });
+    const loading = reduceFoodSearchState(withQuery, { type: "searchStarted", query: "chips" });
+    const changed = reduceFoodSearchState(loading, { type: "queryChanged", query: "soda" });
+
+    expect(reduceFoodSearchState(changed, { type: "searchSucceeded", query: "chips", results: [result] })).toBe(changed);
+    expect(reduceFoodSearchState(changed, { type: "searchFailed", query: "chips", error: "offline" })).toBe(changed);
+  });
+
   it("turns common Typesense failures into actionable messages", () => {
     expect(friendlyTypesenseError(new Error("Failed to fetch"))).toContain("docker compose up");
     expect(friendlyTypesenseError(new Error("401 Unauthorized"))).toContain("pnpm typesense:seed");

@@ -14,6 +14,10 @@ export function SearchScreen() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (state.status === "loading") {
+      return;
+    }
+
     const query = state.query.trim();
     if (!query) {
       dispatch({ type: "queryChanged", query: "" });
@@ -132,7 +136,7 @@ function SearchEmptyState({ title, body }: { title: string; body: string }) {
 }
 
 function FoodResultCard({ result, selected, onSelect }: { result: FoodSearchResult; selected: boolean; onSelect: () => void }) {
-  const tags = [...result.cravingTags.slice(0, 2), ...result.healthTags.slice(0, 1)];
+  const tags = Array.from(new Set([...result.cravingTags.slice(0, 2), ...result.healthTags.slice(0, 1)]));
 
   return (
     <button
@@ -140,7 +144,6 @@ function FoodResultCard({ result, selected, onSelect }: { result: FoodSearchResu
       className={`flex w-full items-center gap-4 rounded-xl border bg-white/80 p-3 text-left shadow-[0_4px_20px_rgba(0,105,107,0.08)] backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
         selected ? "border-[#00696B]" : "border-[#DDE8E9]"
       }`}
-      onMouseDown={(event) => event.preventDefault()}
       onClick={onSelect}
     >
       <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#DDF7EF] text-[20px] font-black text-[#00696B]">
@@ -194,8 +197,8 @@ function FoodDetailPanel({ result, onClose }: { result: FoodSearchResult; onClos
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {[...result.cravingTags, ...result.formatTags, ...result.healthTags].slice(0, 9).map((tag, index) => (
-          <span key={`${tag}-${index}`} className="rounded-full bg-[#EEF7F8] px-3 py-1 text-xs font-bold text-[#3B4949]">
+        {Array.from(new Set([...result.cravingTags, ...result.formatTags, ...result.healthTags])).slice(0, 9).map((tag) => (
+          <span key={tag} className="rounded-full bg-[#EEF7F8] px-3 py-1 text-xs font-bold text-[#3B4949]">
             {tag}
           </span>
         ))}
