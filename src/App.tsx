@@ -24,6 +24,7 @@ import {
   Settings,
   Shield,
   Sparkles,
+  SlidersHorizontal,
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
@@ -199,7 +200,9 @@ export default function App() {
   useEffect(() => {
     setHistory(loadScanHistory());
     setSettings(loadSettings());
-    setActivityDays(loadActivityDays());
+    const storedActivityDays = loadActivityDays();
+    const loginActivity = onboardingProfile.completed ? recordLoginActivityOnce() : null;
+    setActivityDays(loginActivity ?? storedActivityDays);
   }, []);
 
   useEffect(() => {
@@ -704,6 +707,8 @@ export default function App() {
               >
                 <ProfileScreen
                   chart={activityChart}
+                  settings={settings}
+                  onStrictSeedOilPenaltyChange={updateStrictSetting}
                   onLogOut={() => {
                     const nextProfile = createEmptyOnboardingProfile();
                     setOnboardingProfile(saveOnboardingProfile(nextProfile));
@@ -809,7 +814,7 @@ function DashboardScanScreen({
       art: "bar" as const,
     },
   ];
-  const streakLabel = `${Math.max(streak, 5)} Days`;
+  const streakLabel = streak > 0 ? `${streak} Day${streak === 1 ? "" : "s"}` : "No streak yet";
   const introTitle = isScanMode ? "Scan a barcode" : "Hello, Alex!";
   const introCopy = isScanMode
     ? "Point your package barcode at the camera to see cleaner swaps."
@@ -1198,7 +1203,7 @@ function DashboardStatCard({ icon, label, value, tone }: { icon: ReactNode; labe
 function formatLastScanSummary(history: ScanHistoryItem[]): string {
   const latest = history[0];
   if (!latest) {
-    return "2 hours ago";
+    return "No scans yet";
   }
 
   const timestamp = new Date(latest.scannedAt).getTime();
@@ -1269,7 +1274,17 @@ function HistoryScreen({
   );
 }
 
-function ProfileScreen({ chart, onLogOut }: { chart: ActivityChart; onLogOut: () => void }) {
+function ProfileScreen({
+  chart,
+  settings,
+  onStrictSeedOilPenaltyChange,
+  onLogOut,
+}: {
+  chart: ActivityChart;
+  settings: AppSettings;
+  onStrictSeedOilPenaltyChange: (value: boolean) => void;
+  onLogOut: () => void;
+}) {
   const metrics = [
     { label: "Age", value: "28", suffix: "Years", tone: "text-[#00696B]" },
     { label: "Weight", value: "75kg", suffix: "Current", tone: "text-[#00696B]" },
@@ -1332,6 +1347,11 @@ function ProfileScreen({ chart, onLogOut }: { chart: ActivityChart; onLogOut: ()
       <section className="px-5 pt-7">
         <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Account Settings</h3>
         <div className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
+          <ProfileSettingsRow
+            label={settings.strictSeedOilPenalty ? "Strict scoring: On" : "Strict scoring: Off"}
+            icon={<SlidersHorizontal size={21} strokeWidth={1.9} />}
+            onClick={() => onStrictSeedOilPenaltyChange(!settings.strictSeedOilPenalty)}
+          />
           {settingsItems.map((item) => (
             <ProfileSettingsRow key={item.label} label={item.label} icon={item.icon} />
           ))}
