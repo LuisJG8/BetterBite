@@ -1,16 +1,67 @@
-import type { ActivityDay, ActivityEventCounts, ActivityEventType, AppSettings, ScanHistoryItem } from "../types";
+import type {
+  ActivityDay,
+  ActivityEventCounts,
+  ActivityEventType,
+  AppSettings,
+  DietPreference,
+  FoodAvoidance,
+  MainGoal,
+  OnboardingProfile,
+  SavedSwapHistoryItem,
+  ScanHistoryItem,
+  SwapStrictness,
+} from "../types";
 import { getBarcodeError } from "./barcode";
 import { safeOpenFoodFactsImageUrl } from "./sanitize";
 
 export const ACTIVITY_KEY = "betterbite.activity.v1";
+export const ONBOARDING_KEY = "betterbite.onboarding.v2";
+export const SAVED_SWAP_HISTORY_KEY = "betterbite.savedSwapHistory.v1";
 export const SCAN_HISTORY_KEY = "betterbite.scanHistory.v1";
 export const SETTINGS_KEY = "betterbite.settings.v1";
 
 const ACTIVITY_RETENTION_DAYS = 400;
+const SAVED_SWAP_HISTORY_LIMIT = 100;
 const ACTIVITY_EVENT_TYPES = new Set<ActivityEventType>(["barcode_scan", "profile_view", "login"]);
+const MAIN_GOALS: MainGoal[] = [
+  "eat-healthier",
+  "energy-focus",
+  "manage-weight",
+  "fitness-goals",
+  "reduce-inflammation",
+  "long-term-health",
+];
+const DIET_PREFERENCES: DietPreference[] = ["no-preference", "vegetarian", "vegan", "pescatarian", "keto-low-carb", "gluten-free", "dairy-free"];
+const FOODS_TO_AVOID: FoodAvoidance[] = [
+  "none",
+  "seed-oils",
+  "added-sugars",
+  "artificial-sweeteners",
+  "artificial-colors",
+  "high-sodium",
+  "gluten",
+  "dairy",
+  "gmos",
+];
+const SWAP_STRICTNESS: SwapStrictness[] = [
+  "closest-match",
+  "cleaner-ingredients",
+  "lower-sugar-sodium",
+  "avoid-seed-oils",
+  "same-convenience",
+  "strict-clean-label",
+];
 
 const DEFAULT_SETTINGS: AppSettings = {
   strictSeedOilPenalty: true,
+};
+
+const DEFAULT_ONBOARDING_PROFILE: OnboardingProfile = {
+  mainGoals: [],
+  dietPreferences: [],
+  foodsToAvoid: [],
+  swapStrictness: [],
+  completed: false,
 };
 
 export function loadActivityDays(): ActivityDay[] {
@@ -68,6 +119,58 @@ export function upsertScanHistory(item: ScanHistoryItem): ScanHistoryItem[] {
   const next = [item, ...existing].slice(0, 20);
   saveScanHistory(next);
   return next;
+}
+
+export function loadSavedSwapHistory(): SavedSwapHistoryItem[] {
+  const value = readJson<unknown>(SAVED_SWAP_HISTORY_KEY, []);
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(toSavedSwapHistoryItem)
+    .filter((item): item is SavedSwapHistoryItem => item !== null)
+    .sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
+    .slice(0, SAVED_SWAP_HISTORY_LIMIT);
+}
+
+export function saveSavedSwapHistory(items: SavedSwapHistoryItem[]): void {
+  const safeItems = items
+    .map(toSavedSwapHistoryItem)
+    .filter((item): item is SavedSwapHistoryItem => item !== null)
+    .sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
+    .slice(0, SAVED_SWAP_HISTORY_LIMIT);
+
+  writeJson(SAVED_SWAP_HISTORY_KEY, safeItems);
+}
+
+export function appendSavedSwapHistory(item: SavedSwapHistoryItem): SavedSwapHistoryItem[] {
+  const safeItem = toSavedSwapHistoryItem(item);
+  const existing = loadSavedSwapHistory();
+
+  if (!safeItem) {
+    return existing;
+  }
+
+  const latestForScannedProduct = existing.find((entry) => entry.scannedProduct.barcode === safeItem.scannedProduct.barcode);
+  if (latestForScannedProduct?.swap.id === safeItem.swap.id) {
+    return existing;
+  }
+
+  const next = [safeItem, ...existing].slice(0, SAVED_SWAP_HISTORY_LIMIT);
+  saveSavedSwapHistory(next);
+  return next;
+}
+
+export function loadOnboardingProfile(): OnboardingProfile {
+  return toOnboardingProfile(readJson<unknown>(ONBOARDING_KEY, {}));
+}
+
+export function saveOnboardingProfile(profile: OnboardingProfile): OnboardingProfile {
+  const safeProfile = toOnboardingProfile(profile);
+  writeJson(ONBOARDING_KEY, safeProfile);
+  return safeProfile;
 }
 
 export function loadSettings(): AppSettings {
@@ -138,6 +241,132 @@ function toScanHistoryItem(value: unknown): ScanHistoryItem | null {
   }
 
   return item;
+}
+
+function toSavedSwapHistoryItem(value: unknown): SavedSwapHistoryItem | null {
+  if (!isRecord(value) || !isRecord(value.scannedProduct) || !isRecord(value.swap)) {
+    return null;
+  }
+
+  const id = trimText(value.id, 140);
+  const savedAt = trimText(value.savedAt, 40);
+  if (!id || !savedAt || Number.isNaN(Date.parse(savedAt))) {
+    return null;
+  }
+
+  const scannedProduct = toSavedSwapScannedProduct(value.scannedProduct);
+  const swap = toSavedSwapProduct(value.swap);
+  if (!scannedProduct || !swap) {
+    return null;
+  }
+
+  return {
+    id,
+    savedAt,
+    scannedProduct,
+    swap,
+  };
+}
+
+function toSavedSwapScannedProduct(value: Record<string, unknown>): SavedSwapHistoryItem["scannedProduct"] | null {
+  if (typeof value.barcode !== "string" || getBarcodeError(value.barcode)) {
+    return null;
+  }
+
+  const name = trimText(value.name, 120);
+  const scannedAt = trimText(value.scannedAt, 40);
+  if (!name || !scannedAt || Number.isNaN(Date.parse(scannedAt)) || typeof value.score !== "number" || !Number.isFinite(value.score)) {
+    return null;
+  }
+
+  const scannedProduct: SavedSwapHistoryItem["scannedProduct"] = {
+    barcode: value.barcode,
+    name,
+    score: Math.min(10, Math.max(1, Math.round(value.score))),
+    scannedAt,
+  };
+
+  const brand = trimText(value.brand, 80);
+  if (brand) {
+    scannedProduct.brand = brand;
+  }
+
+  const imageUrl = safeOpenFoodFactsImageUrl(value.imageUrl);
+  if (imageUrl) {
+    scannedProduct.imageUrl = imageUrl;
+  }
+
+  return scannedProduct;
+}
+
+function toSavedSwapProduct(value: Record<string, unknown>): SavedSwapHistoryItem["swap"] | null {
+  const id = trimText(value.id, 120);
+  const name = trimText(value.name, 120);
+  const category = trimText(value.category, 80);
+  const reason = trimText(value.reason, 280);
+  const scoreHint = trimText(value.scoreHint, 80);
+  const estimatedPrice = trimText(value.estimatedPrice, 40);
+
+  if (!id || !name || !category || !reason || !scoreHint || !estimatedPrice) {
+    return null;
+  }
+
+  const swap: SavedSwapHistoryItem["swap"] = {
+    id,
+    name,
+    category,
+    reason,
+    scoreHint,
+    estimatedPrice,
+  };
+
+  const brand = trimText(value.brand, 80);
+  if (brand) {
+    swap.brand = brand;
+  }
+
+  const similarityReason = trimText(value.similarityReason, 260);
+  if (similarityReason) {
+    swap.similarityReason = similarityReason;
+  }
+
+  return swap;
+}
+
+function toOnboardingProfile(value: unknown): OnboardingProfile {
+  if (!isRecord(value)) {
+    return DEFAULT_ONBOARDING_PROFILE;
+  }
+
+  const mainGoals = sanitizeOptionArray(value.mainGoals, MAIN_GOALS);
+  const dietPreferences = sanitizeOptionArray(value.dietPreferences, DIET_PREFERENCES, "no-preference");
+  const foodsToAvoid = sanitizeOptionArray(value.foodsToAvoid, FOODS_TO_AVOID, "none");
+  const swapStrictness = sanitizeOptionArray(value.swapStrictness, SWAP_STRICTNESS);
+
+  return {
+    mainGoals,
+    dietPreferences,
+    foodsToAvoid,
+    swapStrictness,
+    completed: Boolean(value.completed && mainGoals.length && dietPreferences.length && foodsToAvoid.length && swapStrictness.length),
+  };
+}
+
+function sanitizeOptionArray<T extends string>(value: unknown, allowed: T[], exclusiveValue?: T): T[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const allowedValues = new Set(allowed);
+  const selected = value.filter((item): item is T => typeof item === "string" && allowedValues.has(item as T));
+  const selectedValues = new Set(selected);
+  const uniqueSelected = allowed.filter((item) => selectedValues.has(item));
+
+  if (exclusiveValue && uniqueSelected.includes(exclusiveValue)) {
+    return [exclusiveValue];
+  }
+
+  return uniqueSelected;
 }
 
 function sanitizeActivityDays(values: unknown[]): ActivityDay[] {

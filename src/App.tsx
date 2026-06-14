@@ -1,49 +1,89 @@
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
   Apple,
   Barcode,
+  Bell,
   CalendarDays,
   Camera,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleX,
+  Clock,
+  Database,
+  DollarSign,
+  FileText,
   History,
+  House,
+  Leaf,
   Loader2,
-  RefreshCw,
+  LogOut,
+  Pencil,
   Search,
+  Shield,
   Sparkles,
-  ThumbsDown,
-  ThumbsUp,
   User,
 } from "lucide-react";
-import { Fragment, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
+import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
+import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
+import { SearchScreen } from "./components/SearchScreen";
 import { getAlternatives } from "./lib/alternatives";
-import { buildActivityChart, type ActivityChart } from "./lib/activityChart";
+import { buildActivityChart, formatActivityWeekRange, type ActivityChart } from "./lib/activityChart";
 import { getBarcodeError, normalizeBarcode } from "./lib/barcode";
+import { createBrowserBarcodeDetector, isBrowserCameraPreviewSupported } from "./lib/browserBarcodeScanner";
+import { filterHistoryItems } from "./lib/historyFilters";
 import { fetchProductByBarcode } from "./lib/openFoodFacts";
 import { scoreProduct } from "./lib/qualityScore";
 import { getBarcodeScannerFormats } from "./lib/scannerFormats";
-import { loadActivityDays, loadScanHistory, loadSettings, recordActivity, saveSettings, upsertScanHistory } from "./lib/storage";
-import type { ActivityDay, AlternativeProduct, AppSettings, IngredientFlag, Product, QualityScore, ScanHistoryItem } from "./types";
+import {
+  appendSavedSwapHistory,
+  loadActivityDays,
+  loadOnboardingProfile,
+  loadSavedSwapHistory,
+  loadScanHistory,
+  loadSettings,
+  recordActivity,
+  saveOnboardingProfile,
+  saveSettings,
+  upsertScanHistory,
+} from "./lib/storage";
+import { acceptSwap, type AcceptedSwapIds } from "./lib/swapState";
+import type {
+  ActivityDay,
+  AlternativeProduct,
+  AppSettings,
+  DietPreference,
+  FoodAvoidance,
+  HistoryFilter,
+  IngredientFlag,
+  MainGoal,
+  OnboardingProfile,
+  Product,
+  QualityScore,
+  SavedSwapHistoryItem,
+  ScanHistoryItem,
+  SwapStrictness,
+} from "./types";
 
-type Tab = "scan" | "swap" | "history" | "profile";
+type Tab = "home" | "search" | "scan" | "history" | "profile";
+type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
+type ScanCameraMode = "barcode" | "food";
 type SwapDetailSide = "original" | "alternative";
 type SwapDetail = {
   barcode: string;
   side: SwapDetailSide;
+  alternativeId?: string;
 };
-type SwapAlternativeIndexes = Record<string, number>;
-type AcceptedSwapIds = Record<string, string>;
-type SwapCelebrationIds = Record<string, string>;
-type HistoryDateGroup = {
-  dateKey: string;
-  label: string;
-  items: ScanHistoryItem[];
+type SavedSwapHistoryGroup = {
+  barcode: string;
+  scannedProduct: SavedSwapHistoryItem["scannedProduct"];
+  latestSavedAt: string;
+  swaps: SavedSwapHistoryItem[];
 };
-
 const LOGIN_ACTIVITY_SESSION_KEY = "betterbite.loginActivityRecorded.v1";
 let didRecordLoginThisRuntime = false;
 
@@ -57,45 +97,163 @@ const FALLBACK_SWAP: AlternativeProduct = {
   similarityReason: "Keeps the salty potato crunch of fries while moving to a simpler chip made with avocado oil.",
 };
 
+const ESTIMATED_SWAP_PRICES: Record<string, string> = {
+  "fallback-boulder-canyon-chips": "$5.49",
+  "simple-mills-pancake-waffle": "$7.99",
+  "birch-benders-protein-pancake": "$6.99",
+  "bobs-red-mill-whole-grain-pancake": "$5.99",
+  "sparkling-water": "$4.99",
+  olipop: "$2.49",
+  "unsweetened-tea": "$2.29",
+  "boulder-canyon-avocado-oil": "$5.49",
+  "jacksons-potato-chips": "$4.99",
+  "lesser-evil-potato-puffs": "$4.49",
+  "siete-chips": "$5.99",
+  "late-july-sea-salt": "$4.49",
+  "food-should-taste-good": "$4.29",
+  jacksons: "$4.99",
+  "homemade-popcorn": "$1.25",
+  "seven-sundays": "$6.99",
+  oatmeal: "$0.55",
+  "sprouted-granola": "$6.49",
+  "purely-elizabeth-granola": "$7.99",
+  "seven-sundays-muesli": "$6.99",
+  "homemade-granola": "$1.10",
+  rxbar: "$2.49",
+  "aloha-protein-bar": "$2.79",
+  "perfect-bar": "$2.99",
+  "lara-bar": "$1.49",
+  "thats-it-bar": "$1.79",
+  "kind-simple-crunch": "$1.69",
+  "simple-mills": "$5.99",
+  "hu-chocolate": "$5.49",
+  "dates-almond-butter": "$1.25",
+  "simple-mills-crackers": "$5.49",
+  "marys-gone-crackers": "$5.99",
+  "wasa-crispbread": "$3.79",
+  "lesser-evil-popcorn": "$4.49",
+  "skinny-pop-original": "$3.99",
+  "air-popped-popcorn": "$0.65",
+  "plain-greek": "$1.25",
+  "siggis-plain": "$1.99",
+  "coconut-yogurt": "$2.49",
+  "organic-milk": "$5.99",
+  "grassfed-milk": "$6.99",
+  "almond-milk": "$3.99",
+  "whole-apple": "$0.90",
+  "unsweetened-applesauce": "$0.85",
+  "no-syrup-fruit-cup": "$1.25",
+  "country-archer-beef-stick": "$2.49",
+  "chomps-beef-stick": "$2.49",
+  "epic-bar": "$2.99",
+  nuts: "$1.50",
+  jerky: "$2.49",
+  fruit: "$0.90",
+};
+
 const TEST_BARCODE = "5449000000996";
+const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "scan-swap", "main-goal", "diet", "avoid", "strictness", "account"];
+
+function createEmptyOnboardingProfile(): OnboardingProfile {
+  return {
+    mainGoals: [],
+    dietPreferences: [],
+    foodsToAvoid: [],
+    swapStrictness: [],
+    completed: false,
+  };
+}
+
+function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProfile): boolean {
+  switch (step) {
+    case "welcome":
+    case "benefits":
+    case "scan-swap":
+      return true;
+    case "main-goal":
+      return profile.mainGoals.length > 0;
+    case "diet":
+      return profile.dietPreferences.length > 0;
+    case "avoid":
+      return profile.foodsToAvoid.length > 0;
+    case "strictness":
+      return profile.swapStrictness.length > 0;
+    case "account":
+      return isOnboardingProfileReady(profile);
+    case "app":
+      return false;
+  }
+}
+
+function isOnboardingProfileReady(profile: OnboardingProfile): boolean {
+  return Boolean(profile.mainGoals.length && profile.dietPreferences.length && profile.foodsToAvoid.length && profile.swapStrictness.length);
+}
+
+function toggleMultiSelect<T extends string>(currentValues: T[], value: T, exclusiveValue?: T): T[] {
+  if (currentValues.includes(value)) {
+    return currentValues.filter((item) => item !== value);
+  }
+
+  if (exclusiveValue && value === exclusiveValue) {
+    return [value];
+  }
+
+  const nextValues = exclusiveValue ? currentValues.filter((item) => item !== exclusiveValue) : currentValues;
+  return [...nextValues, value];
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("scan");
+  const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>(() => loadOnboardingProfile());
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(() => (loadOnboardingProfile().completed ? "app" : "welcome"));
   const [barcode, setBarcode] = useState(TEST_BARCODE);
   const [product, setProduct] = useState<Product | null>(null);
-  const [swapProducts, setSwapProducts] = useState<Product[]>([]);
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
   const [activityDays, setActivityDays] = useState<ActivityDay[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ strictSeedOilPenalty: true });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showScanEntry, setShowScanEntry] = useState(false);
+  const [showBrowserScanner, setShowBrowserScanner] = useState(false);
+  const [browserCameraStream, setBrowserCameraStream] = useState<MediaStream | null>(null);
+  const [browserCameraError, setBrowserCameraError] = useState<string | null>(null);
+  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your laptop camera...");
+  const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
   const [swapDetail, setSwapDetail] = useState<SwapDetail | null>(null);
-  const [swapAlternativeIndexes, setSwapAlternativeIndexes] = useState<SwapAlternativeIndexes>({});
   const [acceptedSwapIds, setAcceptedSwapIds] = useState<AcceptedSwapIds>({});
-  const [swapCelebrationIds, setSwapCelebrationIds] = useState<SwapCelebrationIds>({});
-  const [expandedHistoryDate, setExpandedHistoryDate] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  const [savedSwapHistory, setSavedSwapHistory] = useState<SavedSwapHistoryItem[]>([]);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<ScanHistoryItem | null>(null);
+  const [selectedSavedSwap, setSelectedSavedSwap] = useState<SavedSwapHistoryItem | null>(null);
   const [selectedHistoryProduct, setSelectedHistoryProduct] = useState<Product | null>(null);
   const [selectedHistoryScore, setSelectedHistoryScore] = useState<QualityScore | null>(null);
   const [historyDetailError, setHistoryDetailError] = useState<string | null>(null);
   const [isHistoryDetailLoading, setIsHistoryDetailLoading] = useState(false);
   const scanResultRef = useRef<HTMLDivElement>(null);
+  const contentScrollRef = useRef<HTMLElement>(null);
   const historyDetailRequestRef = useRef(0);
+  const browserCameraStreamRef = useRef<MediaStream | null>(null);
+  const browserCameraRequestRef = useRef(0);
 
   const qualityScore = useMemo(() => (product ? scoreProduct(product, settings) : null), [product, settings]);
   const alternatives = useMemo(() => (product ? getAlternatives(product) : []), [product]);
   const activityChart = useMemo(() => buildActivityChart(activityDays), [activityDays]);
-  const historyGroups = useMemo(() => groupScanHistoryByDate(history), [history]);
+  const savedSwapKeys = useMemo(
+    () => new Set(savedSwapHistory.map((item) => createSavedSwapStateKey(item.scannedProduct.barcode, item.swap.id))),
+    [savedSwapHistory],
+  );
 
   useEffect(() => {
     setHistory(loadScanHistory());
+    setSavedSwapHistory(loadSavedSwapHistory());
     setSettings(loadSettings());
     setActivityDays(loadActivityDays());
+  }, []);
 
-    const loginActivity = recordLoginActivityOnce();
-    if (loginActivity) {
-      setActivityDays(loginActivity);
-    }
+  useEffect(() => {
+    return () => {
+      stopMediaStream(browserCameraStreamRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -105,6 +263,18 @@ export default function App() {
 
     scrollScanResultIntoView();
   }, [activeTab, product]);
+
+  useEffect(() => {
+    if (activeTab !== "scan") {
+      handleBrowserScannerClose();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      contentScrollRef.current?.scrollTo({ top: 0, left: 0 });
+    });
+  }, [activeTab, selectedHistoryItem]);
 
   function scrollScanResultIntoView(): void {
     requestAnimationFrame(() => {
@@ -134,7 +304,6 @@ export default function App() {
       const nextProduct = await fetchProductByBarcode(normalized);
       const nextScore = scoreProduct(nextProduct, settings);
       setProduct(nextProduct);
-      setSwapProducts((existing) => [nextProduct, ...existing.filter((entry) => entry.barcode !== nextProduct.barcode)].slice(0, 20));
       setBarcode(normalized);
       setSwapDetail(null);
       setActiveTab("scan");
@@ -160,7 +329,7 @@ export default function App() {
 
   async function handleScanWithCamera() {
     if (!isTauriRuntime()) {
-      setError("Camera scanning is available in the Tauri mobile app. Use barcode entry in desktop preview.");
+      setError("Open the local dev URL in Chrome or Safari to test with your laptop camera, or type the barcode below.");
       return;
     }
 
@@ -176,7 +345,7 @@ export default function App() {
       const scanned = await scanner.scan({
         cameraDirection: "back",
         formats: getBarcodeScannerFormats(scanner.Format),
-        windowed: true,
+        windowed: false,
       });
 
       setBarcode(scanned.content);
@@ -192,6 +361,108 @@ export default function App() {
     void handleLookup();
   }
 
+  function startScanSession() {
+    setShowScanEntry(true);
+    setError(null);
+    setScanCameraMode("barcode");
+
+    if (canUseLaptopCameraPreview()) {
+      void startBrowserCameraScanner();
+      return;
+    }
+
+    setShowBrowserScanner(false);
+
+    if (isTauriRuntime()) {
+      void handleScanWithCamera();
+      return;
+    }
+
+    setError("Camera preview needs browser camera access. Type the barcode below if camera scanning is unavailable.");
+  }
+
+  function handleScanFoodPress() {
+    startScanSession();
+  }
+
+  function handleScanTabPress() {
+    handleTabChange("scan");
+    startScanSession();
+  }
+
+  function stopBrowserCameraStream() {
+    browserCameraRequestRef.current += 1;
+    stopMediaStream(browserCameraStreamRef.current);
+    browserCameraStreamRef.current = null;
+    setBrowserCameraStream(null);
+  }
+
+  async function startBrowserCameraScanner() {
+    const requestId = browserCameraRequestRef.current + 1;
+    browserCameraRequestRef.current = requestId;
+
+    stopMediaStream(browserCameraStreamRef.current);
+    browserCameraStreamRef.current = null;
+    setBrowserCameraStream(null);
+    setBrowserCameraError(null);
+    setBrowserCameraStatus("Starting your laptop camera...");
+    setShowBrowserScanner(true);
+
+    try {
+      const permissionState = await getBrowserCameraPermissionState();
+
+      if (browserCameraRequestRef.current !== requestId) {
+        return;
+      }
+
+      if (permissionState === "denied") {
+        setBrowserCameraError(getBrowserCameraBlockedMessage());
+        setBrowserCameraStatus("Camera permission is blocked.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "user" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+
+      if (browserCameraRequestRef.current !== requestId) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      browserCameraStreamRef.current = stream;
+      setBrowserCameraStream(stream);
+      setBrowserCameraStatus("Camera preview is active.");
+    } catch (cameraError) {
+      if (browserCameraRequestRef.current !== requestId) {
+        return;
+      }
+
+      setBrowserCameraError(getBrowserCameraErrorMessage(cameraError));
+      setBrowserCameraStatus("Camera access did not start.");
+    }
+  }
+
+  function handleBrowserScannerClose() {
+    stopBrowserCameraStream();
+    setShowBrowserScanner(false);
+    setBrowserCameraError(null);
+    setBrowserCameraStatus("Starting your laptop camera...");
+  }
+
+  function handleBrowserBarcodeDetected(scannedBarcode: string) {
+    stopBrowserCameraStream();
+    setShowBrowserScanner(false);
+    setShowScanEntry(true);
+    setBarcode(scannedBarcode);
+    void handleLookup(scannedBarcode);
+  }
+
   function updateStrictSetting(value: boolean) {
     const next = { ...settings, strictSeedOilPenalty: value };
     setSettings(next);
@@ -203,9 +474,8 @@ export default function App() {
       setActivityDays(recordActivity("profile_view"));
     }
 
-    if (nextTab !== "swap") {
+    if (nextTab !== "scan") {
       setSwapDetail(null);
-      setSwapCelebrationIds({});
     }
 
     if (nextTab !== "history") {
@@ -215,36 +485,93 @@ export default function App() {
     setActiveTab(nextTab);
   }
 
-  function handleAlternativeAccept(product: Product, alternative: AlternativeProduct) {
-    setAcceptedSwapIds((existing) => ({ ...existing, [product.barcode]: alternative.id }));
-    setSwapCelebrationIds((existing) => ({ ...existing, [product.barcode]: alternative.id }));
-
-    window.setTimeout(() => {
-      setSwapCelebrationIds((existing) => {
-        if (existing[product.barcode] !== alternative.id) {
-          return existing;
-        }
-
-        const next = { ...existing };
-        delete next[product.barcode];
-        return next;
-      });
-    }, 1100);
+  function handleHistoryFilterChange(nextFilter: HistoryFilter) {
+    setHistoryFilter(nextFilter);
+    clearHistoryDetail();
   }
 
-  function handleAlternativeReject(product: Product) {
-    const nextAlternatives = getAlternatives(product);
-    const alternativeCount = Math.max(nextAlternatives.length, 1);
+  function handleOnboardingBack() {
+    if (onboardingStep === "app") {
+      return;
+    }
 
-    setSwapAlternativeIndexes((existing) => ({
-      ...existing,
-      [product.barcode]: ((existing[product.barcode] ?? 0) + 1) % alternativeCount,
+    const currentIndex = ONBOARDING_SEQUENCE.indexOf(onboardingStep);
+    if (currentIndex <= 0) {
+      return;
+    }
+
+    setOnboardingStep(ONBOARDING_SEQUENCE[currentIndex - 1]);
+  }
+
+  function handleOnboardingContinue() {
+    if (onboardingStep === "app" || !canContinueOnboardingStep(onboardingStep, onboardingProfile)) {
+      return;
+    }
+
+    if (onboardingStep === "account") {
+      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, completed: true });
+      const loginActivity = recordLoginActivityOnce();
+      setOnboardingProfile(completedProfile);
+      if (loginActivity) {
+        setActivityDays(loginActivity);
+      }
+      setOnboardingStep("app");
+      setActiveTab("scan");
+      startScanSession();
+      window.scrollTo({ top: 0, left: 0 });
+      return;
+    }
+
+    const currentIndex = ONBOARDING_SEQUENCE.indexOf(onboardingStep);
+    const nextStep = ONBOARDING_SEQUENCE[currentIndex + 1];
+    setOnboardingProfile(saveOnboardingProfile({ ...onboardingProfile, completed: false }));
+    if (nextStep) {
+      setOnboardingStep(nextStep);
+    }
+  }
+
+  function handleMainGoalToggle(goal: MainGoal) {
+    updateOnboardingProfile((current) => ({
+      ...current,
+      mainGoals: toggleMultiSelect(current.mainGoals, goal),
     }));
-    setAcceptedSwapIds((existing) => {
-      const next = { ...existing };
-      delete next[product.barcode];
-      return next;
+  }
+
+  function handleDietPreferenceToggle(preference: DietPreference) {
+    updateOnboardingProfile((current) => ({
+      ...current,
+      dietPreferences: toggleMultiSelect(current.dietPreferences, preference, "no-preference"),
+    }));
+  }
+
+  function handleFoodAvoidanceToggle(avoidance: FoodAvoidance) {
+    updateOnboardingProfile((current) => ({
+      ...current,
+      foodsToAvoid: toggleMultiSelect(current.foodsToAvoid, avoidance, "none"),
+    }));
+  }
+
+  function handleSwapStrictnessToggle(strictness: SwapStrictness) {
+    updateOnboardingProfile((current) => ({
+      ...current,
+      swapStrictness: toggleMultiSelect(current.swapStrictness, strictness),
+    }));
+  }
+
+  function updateOnboardingProfile(updater: (current: OnboardingProfile) => OnboardingProfile) {
+    setOnboardingProfile((current) => saveOnboardingProfile({ ...updater(current), completed: false }));
+  }
+
+  function handleAlternativeAccept(product: Product, alternative: AlternativeProduct) {
+    const savedSwapItem = createSavedSwapHistoryItem({
+      product,
+      score: scoreProduct(product, settings),
+      alternative,
+      scanHistoryItem: history.find((item) => item.barcode === product.barcode),
     });
+
+    setSavedSwapHistory(appendSavedSwapHistory(savedSwapItem));
+    setAcceptedSwapIds((existing) => acceptSwap(existing, product.barcode, alternative));
   }
 
   async function handleHistoryItemSelect(item: ScanHistoryItem) {
@@ -282,64 +609,70 @@ export default function App() {
   function clearHistoryDetail() {
     historyDetailRequestRef.current += 1;
     setSelectedHistoryItem(null);
+    setSelectedSavedSwap(null);
     setSelectedHistoryProduct(null);
     setSelectedHistoryScore(null);
     setHistoryDetailError(null);
     setIsHistoryDetailLoading(false);
   }
 
+  if (onboardingStep !== "app") {
+    return (
+      <OnboardingFlow
+        step={onboardingStep}
+        profile={onboardingProfile}
+        onBack={handleOnboardingBack}
+        onContinue={handleOnboardingContinue}
+        onMainGoalToggle={handleMainGoalToggle}
+        onDietPreferenceToggle={handleDietPreferenceToggle}
+        onFoodAvoidanceToggle={handleFoodAvoidanceToggle}
+        onSwapStrictnessToggle={handleSwapStrictnessToggle}
+      />
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-cream text-ink">
-      <div className="mx-auto flex h-screen min-h-0 w-full max-w-[430px] flex-col bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:overflow-hidden md:rounded-[34px]">
-        <section className="min-h-0 flex-1 overflow-y-auto px-5 pb-24 pt-safe-offset">
+    <main className="min-h-[100dvh] bg-cream text-ink">
+      <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
+        <section ref={contentScrollRef} className="app-scroll-area min-h-0 flex-1 px-5 pb-24 pt-safe-offset">
           <AnimatePresence mode="wait">
-            {activeTab === "scan" && (
+            {(activeTab === "home" || activeTab === "scan") && (
               <motion.div
-                key="scan"
+                key={activeTab}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.22 }}
-                className="space-y-5"
+                className="min-h-full"
               >
-                <ScannerCard
+                <DashboardScanScreen
+                  mode={activeTab === "scan" ? "scan" : "home"}
                   barcode={barcode}
                   error={error}
                   isLoading={isLoading}
+                  showBarcodeEntry={showScanEntry}
+                  history={history}
+                  streak={activityChart.currentStreak}
                   onBarcodeChange={setBarcode}
                   onSubmit={handleSubmit}
-                  onCameraScan={handleScanWithCamera}
                 />
 
-                {product && qualityScore ? (
-                  <div ref={scanResultRef}>
-                    <ProductResult product={product} score={qualityScore} alternatives={alternatives} />
+                {activeTab === "scan" && product && qualityScore && (
+                  <div ref={scanResultRef} className="mt-5">
+                    <ProductResult product={product} score={qualityScore} alternatives={alternatives} showAlternatives={false} />
+                    <div className="mt-5">
+                      <SwapScreen
+                        products={[product]}
+                        settings={settings}
+                        detail={swapDetail}
+                        acceptedSwapIds={acceptedSwapIds}
+                        savedSwapKeys={savedSwapKeys}
+                        onDetailChange={setSwapDetail}
+                        onAlternativeAccept={handleAlternativeAccept}
+                      />
+                    </div>
                   </div>
-                ) : (
-                  <EmptyState />
                 )}
-              </motion.div>
-            )}
-
-            {activeTab === "swap" && (
-              <motion.div
-                key="swap"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22 }}
-              >
-                <SwapScreen
-                  products={swapProducts}
-                  settings={settings}
-                  detail={swapDetail}
-                  alternativeIndexes={swapAlternativeIndexes}
-                  acceptedSwapIds={acceptedSwapIds}
-                  celebrationIds={swapCelebrationIds}
-                  onDetailChange={setSwapDetail}
-                  onAlternativeAccept={handleAlternativeAccept}
-                  onAlternativeReject={handleAlternativeReject}
-                />
               </motion.div>
             )}
 
@@ -350,7 +683,7 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.22 }}
-                className="space-y-4"
+                className="min-h-full"
               >
                 {selectedHistoryItem ? (
                   <HistoryFoodDetail
@@ -361,65 +694,31 @@ export default function App() {
                     error={historyDetailError}
                     onBack={clearHistoryDetail}
                   />
+                ) : selectedSavedSwap ? (
+                  <SavedSwapHistoryDetail item={selectedSavedSwap} onBack={clearHistoryDetail} />
                 ) : (
-                  <>
-                    <SectionTitle eyebrow="Local" title="Scan history" />
-                    {history.length > 0 ? (
-                  <div className="space-y-3">
-                    {historyGroups.map((group) => {
-                      const isExpanded = expandedHistoryDate === group.dateKey;
-
-                      return (
-                        <div key={group.dateKey} className="space-y-2">
-                          <button
-                            className="bento-card flex w-full items-center gap-3 p-4 text-left outline-none transition hover:border-leaf focus-visible:ring-2 focus-visible:ring-leaf/35"
-                            onClick={() => setExpandedHistoryDate(isExpanded ? null : group.dateKey)}
-                            aria-expanded={isExpanded}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-base font-black">{group.label}</p>
-                              <p className="mt-1 text-xs font-bold text-muted">
-                                {group.items.length} scanned item{group.items.length === 1 ? "" : "s"}
-                              </p>
-                            </div>
-                            <ChevronRight className={`shrink-0 text-muted transition ${isExpanded ? "rotate-90" : ""}`} size={20} />
-                          </button>
-
-                          {isExpanded && (
-                            <div className="space-y-2 pl-3">
-                              {group.items.map((item) => (
-                                <button
-                                  key={`${item.barcode}-${item.scannedAt}`}
-                                  className="bento-card grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 p-3 text-left outline-none transition hover:border-leaf focus-visible:ring-2 focus-visible:ring-leaf/35"
-                                  onMouseDown={(event) => event.preventDefault()}
-                                  onClick={() => void handleHistoryItemSelect(item)}
-                                >
-                                  <ProductThumb imageUrl={item.imageUrl} name={item.productName} />
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-black">{item.productName}</p>
-                                    <p className="truncate text-xs text-muted">{item.brand ?? item.barcode}</p>
-                                  </div>
-                                  <ScoreBadge value={item.score} size="sm" />
-                                  <ChevronRight size={17} className="shrink-0 text-muted" />
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                    ) : (
-                  <div className="bento-card p-5">
-                    <History className="mb-4 text-leaf" size={28} />
-                    <h2 className="text-xl font-black">No scans yet</h2>
-                    <p className="mt-2 text-sm leading-6 text-muted">
-                      Products you scan or search by barcode will stay on this device for quick comparison.
-                    </p>
-                  </div>
-                    )}
-                  </>
+                  <HistoryScreen
+                    history={history}
+                    savedSwapHistory={savedSwapHistory}
+                    filter={historyFilter}
+                    onFilterChange={handleHistoryFilterChange}
+                    onItemSelect={(item) => void handleHistoryItemSelect(item)}
+                    onSavedSwapSelect={setSelectedSavedSwap}
+                  />
                 )}
+              </motion.div>
+            )}
+
+            {activeTab === "search" && (
+              <motion.div
+                key="search"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.22 }}
+                className="min-h-full"
+              >
+                <SearchScreen />
               </motion.div>
             )}
 
@@ -430,71 +729,44 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.22 }}
-                className="space-y-4"
+                className="min-h-full"
               >
-                <SectionTitle eyebrow="Profile" title="Your activity" />
-                <ActivityCard chart={activityChart} />
-                <SectionTitle eyebrow="Preferences" title="Ingredient profile" />
-                <div className="bento-card p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-lg font-black">Strict clean-label scoring</h2>
-                      <p className="mt-2 text-sm leading-6 text-muted">
-                        BetterBite weighs seed oils, artificial colors, sweeteners, preservatives, additives, and
-                        ultra-processing heavily.
-                      </p>
-                    </div>
-                    <button
-                      role="switch"
-                      aria-checked={settings.strictSeedOilPenalty}
-                      className={`h-8 w-14 rounded-full p-1 transition ${settings.strictSeedOilPenalty ? "bg-leaf" : "bg-line"}`}
-                      onClick={() => updateStrictSetting(!settings.strictSeedOilPenalty)}
-                      aria-label="Toggle strict clean-label scoring"
-                    >
-                      <span
-                        className={`block h-6 w-6 rounded-full bg-cream shadow-sm transition ${
-                          settings.strictSeedOilPenalty ? "translate-x-6" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bento-card bg-berry p-5 text-cream">
-                  <Sparkles className="mb-4 text-sky" size={28} />
-                  <h2 className="text-lg font-black">MVP disclaimer</h2>
-                  <p className="mt-2 text-sm leading-6 text-cream/85">
-                    Scores are ingredient-quality guidance, not medical advice. Always review the product label,
-                    especially for allergies and dietary needs.
-                  </p>
-                </div>
+                <ProfileScreen
+                  chart={activityChart}
+                  onLogOut={() => {
+                    const nextProfile = createEmptyOnboardingProfile();
+                    setOnboardingProfile(saveOnboardingProfile(nextProfile));
+                    setOnboardingStep("welcome");
+                    setActiveTab("scan");
+                  }}
+                />
               </motion.div>
             )}
           </AnimatePresence>
         </section>
 
-        <nav className="shrink-0 border-t border-line bg-cream/95 px-4 pb-safe-offset pt-2 backdrop-blur">
-          <div className="grid grid-cols-4">
+        <nav className="shrink-0 border-t border-line bg-white/92 px-4 pb-safe-offset pt-2 shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
+          <div className="grid grid-cols-5">
+            <NavButton
+              testId="nav-home"
+              active={activeTab === "home"}
+              icon={<House size={21} />}
+              label="Home"
+              onClick={() => handleTabChange("home")}
+            />
+            <NavButton
+              testId="nav-search"
+              active={activeTab === "search"}
+              icon={<Search size={21} />}
+              label="Search"
+              onClick={() => handleTabChange("search")}
+            />
             <NavButton
               testId="nav-scan"
               active={activeTab === "scan"}
-              icon={<Barcode size={21} />}
+              icon={<Camera size={21} />}
               label="Scan"
-              onClick={() => handleTabChange("scan")}
-            />
-            <NavButton
-              testId="nav-swap"
-              active={activeTab === "swap"}
-              icon={<RefreshCw size={21} />}
-              label="Swap"
-              onClick={() => handleTabChange("swap")}
-            />
-            <NavButton
-              testId="nav-profile"
-              active={activeTab === "profile"}
-              icon={<User size={21} />}
-              label="Profile"
-              onClick={() => handleTabChange("profile")}
+              onClick={handleScanTabPress}
             />
             <NavButton
               testId="nav-history"
@@ -503,10 +775,922 @@ export default function App() {
               label="History"
               onClick={() => handleTabChange("history")}
             />
+            <NavButton
+              testId="nav-profile"
+              active={activeTab === "profile"}
+              icon={<User size={21} />}
+              label="Profile"
+              onClick={() => handleTabChange("profile")}
+            />
           </div>
         </nav>
+
+        {showBrowserScanner && (
+          <BrowserScannerPanel
+            mode={scanCameraMode}
+            stream={browserCameraStream}
+            status={browserCameraStatus}
+            error={browserCameraError}
+            onModeChange={setScanCameraMode}
+            onClose={handleBrowserScannerClose}
+            onDetected={handleBrowserBarcodeDetected}
+            onRetry={() => void startBrowserCameraScanner()}
+          />
+        )}
       </div>
     </main>
+  );
+}
+
+function DashboardScanScreen({
+  mode,
+  barcode,
+  error,
+  isLoading,
+  showBarcodeEntry,
+  history,
+  streak,
+  onBarcodeChange,
+  onSubmit,
+}: {
+  mode: "home" | "scan";
+  barcode: string;
+  error: string | null;
+  isLoading: boolean;
+  showBarcodeEntry: boolean;
+  history: ScanHistoryItem[];
+  streak: number;
+  onBarcodeChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const isScanMode = mode === "scan";
+  const recommendations = [
+    {
+      name: "Organic Green Juice",
+      detail: "High in antioxidants",
+      score: "9.5",
+      art: "juice" as const,
+    },
+    {
+      name: "Nutra Harvest Bar",
+      detail: "Fiber & Protein Rich",
+      score: "8.2",
+      art: "bar" as const,
+    },
+  ];
+  const streakLabel = `${Math.max(streak, 5)} Days`;
+  const introTitle = isScanMode ? "Scan a barcode" : "Hello, Alex!";
+  const introCopy = isScanMode
+    ? "Point your package barcode at the camera to see cleaner swaps."
+    : "Ready to make healthy choices today?";
+
+  return (
+    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-6">
+      <section className="px-5 pt-5">
+        <h2 className="text-[28px] font-black leading-9 text-[#191C1D]">{introTitle}</h2>
+        <p className="mt-0.5 text-[16px] font-medium leading-6 text-[#3B4949]">{introCopy}</p>
+      </section>
+
+      {!isScanMode && (
+        <section className="pt-9">
+          <div className="mb-3 flex items-end justify-between px-5">
+            <h2 className="text-[24px] font-black leading-8 text-[#191C1D]">Recommended for You</h2>
+            <button className="pb-1 text-[14px] font-bold text-[#00696B] transition hover:text-[#004F51]" type="button">
+              View all
+            </button>
+          </div>
+          <div className="flex gap-6 overflow-x-auto px-5 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {recommendations.map((item) => (
+              <RecommendedFoodCard key={item.name} item={item} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {isScanMode && (showBarcodeEntry || error) && (
+        <DashboardLookupPanel
+          barcode={barcode}
+          error={error}
+          isLoading={isLoading}
+          onBarcodeChange={onBarcodeChange}
+          onSubmit={onSubmit}
+        />
+      )}
+
+      {!isScanMode && (
+        <section className="grid grid-cols-2 gap-3 px-5 pt-10">
+          <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="blue" />
+          <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function BrowserScannerPanel({
+  mode,
+  stream,
+  status,
+  error,
+  onModeChange,
+  onClose,
+  onDetected,
+  onRetry,
+}: {
+  mode: ScanCameraMode;
+  stream: MediaStream | null;
+  status: string;
+  error: string | null;
+  onModeChange: (mode: ScanCameraMode) => void;
+  onClose: () => void;
+  onDetected: (value: string) => void;
+  onRetry: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scanTimerRef = useRef(0);
+  const isDetectingRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const onDetectedRef = useRef(onDetected);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onDetectedRef.current = onDetected;
+  }, [onDetected]);
+
+  const stopDetection = useCallback(() => {
+    window.clearTimeout(scanTimerRef.current);
+    scanTimerRef.current = 0;
+    isDetectingRef.current = false;
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    stopDetection();
+    setLocalError(null);
+
+    if (!stream) {
+      return () => {
+        requestIdRef.current += 1;
+        stopDetection();
+      };
+    }
+
+    const video = videoRef.current;
+    if (!video) {
+      return () => {
+        requestIdRef.current += 1;
+        stopDetection();
+      };
+    }
+
+    video.srcObject = stream;
+
+    const detector = mode === "barcode" ? createBrowserBarcodeDetector() : null;
+
+    if (mode === "barcode" && !detector) {
+      setLocalError("Camera preview is on, but this browser does not expose barcode detection. Try Chrome or Safari with camera permissions enabled.");
+    }
+
+    const scanLoop = async () => {
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
+
+      if (isDetectingRef.current) {
+        scanTimerRef.current = window.setTimeout(scanLoop, 180);
+        return;
+      }
+
+      if (!videoRef.current || videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        scanTimerRef.current = window.setTimeout(scanLoop, 180);
+        return;
+      }
+
+      isDetectingRef.current = true;
+
+      try {
+        if (!detector) {
+          return;
+        }
+
+        const detections = await detector.detect(videoRef.current);
+        const match = detections.find((item) => item.rawValue?.trim());
+
+        if (match?.rawValue) {
+          requestIdRef.current += 1;
+          stopDetection();
+          onDetectedRef.current(match.rawValue.trim());
+          return;
+        }
+      } catch (detectError) {
+        if (requestIdRef.current !== requestId) {
+          return;
+        }
+
+        setLocalError(getBrowserCameraErrorMessage(detectError));
+        stopDetection();
+        return;
+      } finally {
+        isDetectingRef.current = false;
+      }
+
+      scanTimerRef.current = window.setTimeout(scanLoop, 180);
+    };
+
+    void video.play().then(
+      () => {
+        if (requestIdRef.current === requestId) {
+          if (mode === "barcode" && detector) {
+            scanTimerRef.current = window.setTimeout(scanLoop, 180);
+          }
+        }
+      },
+      (playError: unknown) => {
+        if (requestIdRef.current === requestId) {
+          setLocalError(getBrowserCameraErrorMessage(playError));
+          stopDetection();
+        }
+      },
+    );
+
+    return () => {
+      requestIdRef.current += 1;
+      stopDetection();
+    };
+  }, [mode, stopDetection, stream]);
+
+  const displayError = error ?? localError;
+  const isBarcodeMode = mode === "barcode";
+  const panelTitle = isBarcodeMode ? "Scan a barcode" : "Scan food";
+
+  return (
+    <section
+      className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-black text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label={panelTitle}
+    >
+      <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" autoPlay muted playsInline />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.64)_0%,rgba(0,0,0,0.18)_40%,rgba(0,0,0,0.74)_100%)]" />
+
+      <header className="relative z-10 flex flex-col items-start px-5 pt-[calc(env(safe-area-inset-top)+18px)]">
+        <button
+          className="shrink-0 rounded-full border border-white/25 bg-black/30 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-white/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          type="button"
+          onClick={onClose}
+        >
+          Close
+        </button>
+        <div className="mt-5 min-w-0">
+          <div className="inline-flex rounded-full border border-white/18 bg-black/34 p-1 shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-md">
+            <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => onModeChange("barcode")} />
+            <ScanModeButton active={!isBarcodeMode} label="Scan food" onClick={() => onModeChange("food")} />
+          </div>
+        </div>
+      </header>
+
+      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6">
+        {isBarcodeMode && (
+          <div
+            className="h-[132px] w-[min(82vw,340px)] rounded-[24px] border-[3px] border-dashed border-white/85 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]"
+            aria-hidden="true"
+          />
+        )}
+      </div>
+
+      {displayError && (
+        <div className="relative z-10 px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
+          <div className="rounded-[14px] bg-[#FFD9D4] px-3 py-2 text-sm font-semibold text-[#7A1F13] shadow-[0_18px_40px_rgba(0,0,0,0.32)]">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 shrink-0" size={16} />
+              <span>{displayError}</span>
+            </div>
+            <button
+              type="button"
+              className="mt-3 inline-flex h-10 items-center justify-center rounded-[10px] bg-[#8A1F15] px-4 text-sm font-black text-white transition hover:bg-[#6F170F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8A1F15]/35"
+              onClick={onRetry}
+            >
+              Try camera again
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ScanModeButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`h-10 rounded-full px-4 text-[12px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
+        active ? "bg-white text-[#063F41] shadow-[0_8px_20px_rgba(0,0,0,0.24)]" : "text-white/74 hover:bg-white/10 hover:text-white"
+      }`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function RecommendedFoodCard({
+  item,
+}: {
+  item: {
+    name: string;
+    detail: string;
+    score: string;
+    art: "juice" | "bar";
+  };
+}) {
+  return (
+    <button
+      type="button"
+      className="w-64 shrink-0 overflow-hidden rounded-xl border border-[#DDE8E9] bg-white text-left shadow-[0_4px_18px_rgba(0,105,107,0.06)] transition active:scale-[0.98]"
+    >
+      <div className="relative flex h-44 items-end justify-center overflow-hidden bg-[linear-gradient(145deg,#FFFFFF_0%,#F2F7F6_100%)]">
+        <ProductRecommendationArt kind={item.art} />
+        <span className="absolute right-3 top-3 rounded-full bg-[#AEEED8] px-3 py-1 text-[12px] font-bold leading-4 text-[#316D5B]">
+          {item.score}
+        </span>
+      </div>
+      <div className="px-3 py-3">
+        <h3 className="truncate text-[15px] font-semibold leading-5 text-[#191C1D]">{item.name}</h3>
+        <p className="truncate text-[13px] font-medium leading-4 text-[#3B4949]">{item.detail}</p>
+      </div>
+    </button>
+  );
+}
+
+function ProductRecommendationArt({ kind }: { kind: "juice" | "bar" }) {
+  if (kind === "bar") {
+    return (
+      <div className="relative mb-12 h-24 w-44">
+        <div className="absolute left-5 top-9 h-12 w-36 rotate-[-5deg] rounded-[6px] border border-[#D8E4DF] bg-white shadow-[0_18px_28px_rgba(0,0,0,0.10)]">
+          <div className="absolute left-3 top-2 h-4 w-16 rounded-sm bg-[#E4F4EE]" />
+          <div className="absolute bottom-2 left-3 h-3 w-20 rounded-sm bg-[#D7C9A8]" />
+          <div className="absolute right-3 top-2 h-7 w-8 rounded bg-[#8BAF83]" />
+        </div>
+        <div className="absolute bottom-0 left-12 h-5 w-28 rounded-full bg-[#C7D5D5]/35 blur-md" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-40 w-56">
+      <div className="absolute bottom-5 left-7 h-8 w-8 rounded-full bg-[#6F9844]" />
+      <div className="absolute bottom-5 left-14 h-7 w-10 rounded-full bg-[#C7DB7E]" />
+      <div className="absolute bottom-4 right-9 h-7 w-7 rounded-full bg-[#8B6A3E]" />
+      <div className="absolute bottom-7 right-16 h-5 w-8 rounded-full bg-[#AFC76B]" />
+      <div className="absolute bottom-5 left-1 h-12 w-14 rounded-[50%] border-t-[10px] border-[#3F8C57]" />
+      <div className="absolute bottom-5 left-[86px] h-[116px] w-[48px] rounded-b-[12px] rounded-t-[15px] bg-gradient-to-b from-[#597F30] to-[#0F5534] shadow-[0_18px_24px_rgba(0,85,52,0.22)]">
+        <div className="mx-auto mt-7 h-8 w-7 rounded-sm bg-white/85 text-center text-[4px] font-black uppercase leading-3 text-[#3D6B33]">
+          Organic
+        </div>
+        <div className="absolute left-3 top-[-14px] h-4 w-6 rounded-t-[5px] bg-[#5C7E34]" />
+      </div>
+      <div className="absolute bottom-2 left-8 h-7 w-40 rounded-full bg-[#C7D5D5]/35 blur-md" />
+    </div>
+  );
+}
+
+function DashboardLookupPanel({
+  barcode,
+  error,
+  isLoading,
+  onBarcodeChange,
+  onSubmit,
+}: {
+  barcode: string;
+  error: string | null;
+  isLoading: boolean;
+  onBarcodeChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="mx-5 mt-4 rounded-2xl border border-[#DDE8E9] bg-white/82 p-4 shadow-[0_8px_24px_rgba(0,105,107,0.08)] backdrop-blur" onSubmit={onSubmit}>
+      <label className="text-[11px] font-black uppercase leading-4 tracking-[0.18em] text-[#00696B]" htmlFor="dashboard-barcode">
+        UPC or EAN
+      </label>
+      <div className="mt-2 flex gap-2">
+        <input
+          id="dashboard-barcode"
+          inputMode="numeric"
+          className="min-w-0 flex-1 rounded-[14px] border border-[#D9E4E5] bg-[#F8FAFB] px-4 py-3 text-base font-bold text-[#1F2629] outline-none transition placeholder:text-[#667080] focus:border-[#00C5C8] focus:ring-2 focus:ring-[#00C5C8]/20"
+          placeholder="5449000000996"
+          value={barcode}
+          onChange={(event) => onBarcodeChange(event.target.value)}
+        />
+        <button
+          type="submit"
+          className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[14px] bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 disabled:opacity-60"
+          disabled={isLoading}
+          aria-label="Search barcode"
+        >
+          {isLoading ? <Loader2 className="animate-spin" size={21} /> : <Search size={21} />}
+        </button>
+      </div>
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-[10px] bg-[#DDF7EF] px-3 py-2 text-sm font-semibold text-[#00696B]">
+          <AlertTriangle className="mt-0.5 shrink-0" size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+    </form>
+  );
+}
+
+function DashboardStatCard({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone: "blue" | "green" }) {
+  const colors =
+    tone === "blue"
+      ? "border-[#8BC3CA]/45 bg-[#DFF1F4] text-[#2D666D]"
+      : "border-[#AEEED8]/55 bg-[#E8F7F2] text-[#2C6956]";
+
+  return (
+    <div className={`min-h-[126px] rounded-2xl border p-6 ${colors}`}>
+      <div className="mb-5">{icon}</div>
+      <p className="text-[12px] font-bold leading-4">{label}</p>
+      <p className="mt-0.5 text-[14px] font-black leading-5 text-[#191C1D]">{value}</p>
+    </div>
+  );
+}
+
+function formatLastScanSummary(history: ScanHistoryItem[]): string {
+  const latest = history[0];
+  if (!latest) {
+    return "2 hours ago";
+  }
+
+  const timestamp = new Date(latest.scannedAt).getTime();
+  if (Number.isNaN(timestamp)) {
+    return "Recently";
+  }
+
+  const diffMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  if (diffMinutes < 60) {
+    return diffMinutes <= 1 ? "Just now" : `${diffMinutes} minutes ago`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
+
+function HistoryScreen({
+  history,
+  savedSwapHistory,
+  filter,
+  onFilterChange,
+  onItemSelect,
+  onSavedSwapSelect,
+}: {
+  history: ScanHistoryItem[];
+  savedSwapHistory: SavedSwapHistoryItem[];
+  filter: HistoryFilter;
+  onFilterChange: (filter: HistoryFilter) => void;
+  onItemSelect: (item: ScanHistoryItem) => void;
+  onSavedSwapSelect: (item: SavedSwapHistoryItem) => void;
+}) {
+  const filteredHistory = filterHistoryItems(history, filter);
+  const savedSwapGroups = groupSavedSwapHistory(savedSwapHistory);
+  const isSwapFilter = filter === "swaps";
+
+  return (
+    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-10">
+      <div className="px-5 pb-2 pt-8">
+        <h2 className="text-[32px] font-black leading-tight text-[#191C1D]">My Scans</h2>
+        <p className="mt-1 text-[18px] font-medium leading-7 text-[#3B4949]">Review your nutritional history</p>
+      </div>
+
+      <div className="sticky top-0 z-10 border-b border-[#BAC9C9]/40 bg-[#F8FAFB]/90 px-5 pt-5 backdrop-blur">
+        <div className="-mx-5 overflow-x-auto px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-max gap-10">
+            <HistoryFilterButton active={filter === "all"} label="All" onClick={() => onFilterChange("all")} />
+            <HistoryFilterButton active={filter === "saved"} label="Saved" onClick={() => onFilterChange("saved")} />
+            <HistoryFilterButton active={filter === "this-week"} label="This Week" onClick={() => onFilterChange("this-week")} />
+            <HistoryFilterButton active={filter === "swaps"} label="Swaps" onClick={() => onFilterChange("swaps")} />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 px-5 pt-10">
+        {isSwapFilter ? (
+          savedSwapGroups.length > 0 ? (
+            <HistorySwapsList groups={savedSwapGroups} onSavedSwapSelect={onSavedSwapSelect} />
+          ) : (
+            <HistoryEmptyState
+              icon={<Sparkles size={34} />}
+              title="No saved swaps yet"
+              copy="Scan a food and tap Save Swap to build your saved swap history here."
+            />
+          )
+        ) : filteredHistory.length > 0 ? (
+          filteredHistory.map((item) => <HistoryScanCard key={`${item.barcode}-${item.scannedAt}`} item={item} onSelect={() => onItemSelect(item)} />)
+        ) : (
+          <HistoryEmptyState
+            icon={<History size={34} />}
+            title="No scans yet"
+            copy="Start by scanning a food product to see your history and insights here."
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HistoryEmptyState({ icon, title, copy }: { icon: ReactNode; title: string; copy: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="flex h-20 w-20 items-center justify-center rounded-[22px] bg-[#DDF7EF] text-[#00696B]">{icon}</div>
+      <h3 className="mt-5 text-2xl font-black text-[#191C1D]">{title}</h3>
+      <p className="mt-2 max-w-[280px] text-sm font-semibold leading-6 text-[#566164]">{copy}</p>
+    </div>
+  );
+}
+
+function HistorySwapsList({
+  groups,
+  onSavedSwapSelect,
+}: {
+  groups: SavedSwapHistoryGroup[];
+  onSavedSwapSelect: (item: SavedSwapHistoryItem) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <section key={group.barcode} className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/75 shadow-[0_4px_20px_rgba(0,105,107,0.08)] backdrop-blur">
+          <div className="flex items-center gap-3 bg-[#EEF7F8] p-3">
+            <HistoryThumb imageUrl={group.scannedProduct.imageUrl} name={group.scannedProduct.name} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#00696B]">Scanned item</p>
+              <h3 className="mt-1 truncate text-[17px] font-black leading-6 text-[#191C1D]">{group.scannedProduct.name}</h3>
+              <p className="truncate text-[13px] font-semibold leading-5 text-[#3B4949]">
+                {group.scannedProduct.brand ? `${group.scannedProduct.brand} - ` : ""}
+                {formatCompactHistoryDateTime(group.scannedProduct.scannedAt)}
+              </p>
+            </div>
+            <HistoryScoreRing score={group.scannedProduct.score} />
+          </div>
+
+          <div className="grid gap-3 p-3">
+            {group.swaps.map((item) => (
+              <SavedSwapHistoryRow key={item.id} item={item} onSelect={() => onSavedSwapSelect(item)} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function SavedSwapHistoryRow({ item, onSelect }: { item: SavedSwapHistoryItem; onSelect: () => void }) {
+  const swapName = item.swap.brand ? `${item.swap.brand} ${item.swap.name}` : item.swap.name;
+  const meta = item.swap.brand ? `${item.swap.brand} - ${item.swap.category}` : item.swap.category;
+
+  return (
+    <button
+      type="button"
+      className="grid w-full grid-cols-[52px_minmax(0,1fr)] gap-3 rounded-[10px] border border-[#DDE8E9] bg-white p-3 text-left transition hover:bg-[#F8FAFB] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onSelect}
+      aria-label={`View saved swap ${swapName}`}
+    >
+      <div className="flex h-[52px] w-[52px] items-center justify-center rounded-[10px] bg-[#DDF7EF] text-[#00696B]">
+        <Apple size={24} strokeWidth={1.9} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 truncate text-[10px] font-black uppercase leading-4 tracking-[0.14em] text-[#00696B]">{meta}</p>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#DDE8E9] bg-[#F8FAFB] px-2 py-0.5 text-[11px] font-black text-[#191C1D]">
+            <DollarSign size={11} />
+            Est. {item.swap.estimatedPrice}
+          </span>
+        </div>
+        <h4 className="mt-1 line-clamp-2 text-[16px] font-black leading-5 text-[#191C1D]">{swapName}</h4>
+        <p className="mt-1 text-xs font-black leading-4 text-[#566164]">{item.swap.scoreHint}</p>
+        <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-[#566164]">{item.swap.reason}</p>
+        <p className="mt-2 text-[11px] font-black uppercase tracking-[0.12em] text-[#00696B]">Saved {formatCompactHistoryDateTime(item.savedAt)}</p>
+      </div>
+    </button>
+  );
+}
+
+function ProfileScreen({ chart, onLogOut }: { chart: ActivityChart; onLogOut: () => void }) {
+  const metrics = [
+    { label: "Age", value: "28", suffix: "Years", tone: "text-[#00696B]" },
+    { label: "Weight", value: "75kg", suffix: "Current", tone: "text-[#00696B]" },
+    { label: "Height", value: "180cm", suffix: "Centimeters", tone: "text-[#00696B]" },
+    { label: "Goal", value: "Bulking", suffix: "Active", tone: "text-[#2C6956]" },
+  ];
+  const settingsItems = [
+    { label: "Notifications", icon: <Bell size={21} strokeWidth={1.9} />, danger: false },
+    { label: "Privacy Policy", icon: <Shield size={21} strokeWidth={1.9} />, danger: false },
+    { label: "Terms of Service", icon: <FileText size={21} strokeWidth={1.9} />, danger: false },
+    { label: "Data & Storage", icon: <Database size={21} strokeWidth={1.9} />, danger: false },
+  ];
+
+  return (
+    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-8">
+      <section className="flex flex-col items-center px-5 pt-5 text-center">
+        <div className="relative">
+          <div className="h-[120px] w-[120px] overflow-hidden rounded-full border-4 border-[#AEEED8] bg-white shadow-[0_16px_34px_rgba(0,105,107,0.10)]">
+            <img className="h-full w-full object-cover" src={profilePhoto} alt="Luis Gonzalez" />
+          </div>
+          <button
+            className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_22px_rgba(0,105,107,0.24)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
+            type="button"
+            aria-label="Edit avatar"
+          >
+            <Pencil size={15} strokeWidth={3} />
+          </button>
+        </div>
+        <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">Alex Johnson</h2>
+        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">alex.j@example.com</p>
+        <button
+          className="mt-5 min-h-11 rounded-full border-2 border-[#00BFC3] px-8 text-[15px] font-semibold text-[#00696B] transition hover:bg-[#E8FDFD] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+          type="button"
+        >
+          Edit Profile
+        </button>
+      </section>
+
+      <section className="px-5 pt-8">
+        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Login Activity</h3>
+        <ActivityCard chart={chart} />
+      </section>
+
+      <section className="px-5 pt-7">
+        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Health Metrics</h3>
+        <div className="grid grid-cols-2 gap-4">
+          {metrics.map((metric) => (
+            <div
+              key={metric.label}
+              className="flex min-h-[116px] flex-col items-center justify-center rounded-xl border border-[#DDE8E9] bg-white/72 px-3 text-center shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur"
+            >
+              <p className="text-[12px] font-bold leading-4 text-[#3B4949]">{metric.label}</p>
+              <p className={`mt-3 text-[25px] font-black leading-8 ${metric.tone}`}>{metric.value}</p>
+              <p className="mt-2 text-[12px] font-bold leading-4 text-[#6B7A7A]">{metric.suffix}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="px-5 pt-7">
+        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Account Settings</h3>
+        <div className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
+          {settingsItems.map((item) => (
+            <ProfileSettingsRow key={item.label} label={item.label} icon={item.icon} />
+          ))}
+          <ProfileSettingsRow label="Log Out" icon={<LogOut size={21} strokeWidth={1.9} />} danger onClick={onLogOut} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ProfileSettingsRow({
+  label,
+  icon,
+  danger = false,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  danger?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`flex min-h-[72px] w-full items-center justify-between border-b border-[#DDE8E9]/70 px-7 text-left transition last:border-b-0 hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#00C5C8]/35 ${
+        danger ? "text-[#BA1A1A] hover:bg-[#FFDAD6]/35" : "text-[#191C1D]"
+      }`}
+      onClick={onClick}
+    >
+      <span className="flex min-w-0 items-center gap-5">
+        <span className={danger ? "text-[#BA1A1A]" : "text-[#3B4949]"}>{icon}</span>
+        <span className="truncate text-[16px] font-medium leading-6">{label}</span>
+      </span>
+      <ChevronRight className={danger ? "text-[#F0B8B8]" : "text-[#BAC9C9]"} size={22} strokeWidth={2.2} />
+    </button>
+  );
+}
+
+function HistoryFilterButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`relative pb-4 text-[16px] font-bold outline-none transition focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#F8FAFB] ${
+        active ? "text-[#00696B]" : "text-[#273737] hover:text-[#00696B]"
+      }`}
+      onClick={onClick}
+    >
+      {label}
+      {active && <span className="absolute bottom-[-2px] left-0 h-[3px] w-full rounded-full bg-[#00696B]" />}
+    </button>
+  );
+}
+
+function HistoryScanCard({ item, onSelect }: { item: ScanHistoryItem; onSelect: () => void }) {
+  const tags = historyItemTags(item);
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-4 rounded-xl border border-[#DDE8E9] bg-white/75 p-3 text-left shadow-[0_4px_20px_rgba(0,105,107,0.08)] backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onSelect}
+    >
+      <HistoryThumb imageUrl={item.imageUrl} name={item.productName} />
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-[17px] font-semibold leading-6 text-black">{item.productName}</h3>
+        <p className="truncate text-[14px] font-semibold leading-5 text-[#3B4949]">{formatCompactHistoryDateTime(item.scannedAt)}</p>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <span key={tag.label} className={`rounded-full px-2 py-0.5 text-[12px] font-semibold leading-4 ${tag.className}`}>
+              {tag.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      <HistoryScoreRing score={item.score} />
+    </button>
+  );
+}
+
+function HistoryThumb({ imageUrl, name }: { imageUrl?: string; name: string }) {
+  return (
+    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#B1EFD8] to-[#00696B]/25">
+      {imageUrl ? (
+        <img className="h-full w-full object-cover" src={imageUrl} alt={name} />
+      ) : (
+        <Apple className="text-[#00696B]" size={34} strokeWidth={1.9} />
+      )}
+    </div>
+  );
+}
+
+function HistoryScoreRing({ score }: { score: number }) {
+  const displayScore = Math.min(10, Math.max(1, Math.round(score)));
+  const progressScore = displayScore * 10;
+  const accentColor = scoreAccentColor(displayScore);
+
+  return (
+    <div
+      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
+      style={{ background: `conic-gradient(${accentColor} ${progressScore}%, #E1E3E4 ${progressScore}% 100%)` }}
+      aria-label={`Score ${displayScore} out of 10`}
+    >
+      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#F8FAFB] text-[16px] font-black" style={{ color: accentColor }}>
+        {displayScore}
+      </div>
+    </div>
+  );
+}
+
+function groupSavedSwapHistory(items: SavedSwapHistoryItem[]): SavedSwapHistoryGroup[] {
+  const groups = new Map<string, SavedSwapHistoryGroup>();
+
+  for (const item of items) {
+    const barcode = item.scannedProduct.barcode;
+    const existing = groups.get(barcode);
+
+    if (existing) {
+      existing.swaps.push(item);
+      if (Date.parse(item.savedAt) > Date.parse(existing.latestSavedAt)) {
+        existing.latestSavedAt = item.savedAt;
+        existing.scannedProduct = item.scannedProduct;
+      }
+      continue;
+    }
+
+    groups.set(barcode, {
+      barcode,
+      scannedProduct: item.scannedProduct,
+      latestSavedAt: item.savedAt,
+      swaps: [item],
+    });
+  }
+
+  return Array.from(groups.values()).sort((left, right) => Date.parse(right.latestSavedAt) - Date.parse(left.latestSavedAt));
+}
+
+function formatCompactHistoryDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const itemDay = new Date(date);
+  itemDay.setHours(0, 0, 0, 0);
+
+  const dayDiff = Math.round((today.getTime() - itemDay.getTime()) / 86_400_000);
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+
+  if (dayDiff === 0) {
+    return `Today, ${time}`;
+  }
+
+  if (dayDiff === 1) {
+    return `Yesterday, ${time}`;
+  }
+
+  return `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)}, ${time}`;
+}
+
+function historyItemTags(item: ScanHistoryItem): Array<{ label: string; className: string }> {
+  if (item.score >= 8) {
+    return [
+      { label: "High Score", className: "bg-[#AEEED8] text-[#0D503F]" },
+      { label: "Safe", className: "bg-[#E1E3E4] text-[#3B4949]" },
+    ];
+  }
+
+  if (item.score >= 6) {
+    return [
+      { label: "Review", className: "bg-[#B3ECF3] text-[#0D4E54]" },
+      { label: "Moderate", className: "bg-[#E1E3E4] text-[#3B4949]" },
+    ];
+  }
+
+  return [
+    { label: "Flagged", className: "bg-[#FFDAD6] text-[#93000A]" },
+    { label: "Check label", className: "bg-[#E1E3E4] text-[#3B4949]" },
+  ];
+}
+
+function SavedSwapHistoryDetail({ item, onBack }: { item: SavedSwapHistoryItem; onBack: () => void }) {
+  const swapName = item.swap.brand ? `${item.swap.brand} ${item.swap.name}` : item.swap.name;
+  const meta = item.swap.brand ? `${item.swap.brand} - ${item.swap.category}` : item.swap.category;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <button
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-oat text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-leaf/35"
+          onClick={onBack}
+          aria-label="Back to saved swaps"
+        >
+          <ChevronLeft size={22} />
+        </button>
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-leaf">Saved swap</p>
+          <h2 className="mt-1 truncate text-xl font-black">{swapName}</h2>
+        </div>
+      </div>
+
+      <div className="bento-card overflow-hidden">
+        <div className="bg-oat p-5">
+          <div className="mx-auto flex aspect-square max-h-[190px] w-full max-w-[190px] items-center justify-center overflow-hidden rounded-[8px] bg-cream/80 text-leaf">
+            <Apple size={64} strokeWidth={1.9} />
+          </div>
+        </div>
+
+        <div className="space-y-4 p-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-muted">{meta}</p>
+            <h3 className="mt-1 text-xl font-black leading-tight">{swapName}</h3>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full bg-[#DDF7EF] px-3 py-1 text-xs font-black text-[#00696B]">{item.swap.scoreHint}</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-cream px-3 py-1 text-xs font-black text-ink">
+                <DollarSign size={13} />
+                Est. {item.swap.estimatedPrice}
+              </span>
+            </div>
+          </div>
+
+          <p className="text-sm font-semibold leading-6 text-muted">{item.swap.reason}</p>
+          {item.swap.similarityReason && <p className="rounded-[8px] bg-oat px-3 py-2 text-sm font-semibold leading-5 text-ink">{item.swap.similarityReason}</p>}
+        </div>
+      </div>
+
+      <HistoryDetailSection title="Scanned from">
+        <div className="flex items-center gap-3">
+          <HistoryThumb imageUrl={item.scannedProduct.imageUrl} name={item.scannedProduct.name} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-muted">{item.scannedProduct.brand ?? "Scanned food"}</p>
+            <h3 className="mt-1 line-clamp-2 text-base font-black leading-tight">{item.scannedProduct.name}</h3>
+            <p className="mt-1 text-xs font-bold text-muted">{formatHistoryDateTime(item.scannedProduct.scannedAt)}</p>
+          </div>
+          <ScoreBadge value={item.scannedProduct.score} size="sm" />
+        </div>
+        <HistoryDataRow label="Barcode" value={item.scannedProduct.barcode} />
+        <HistoryDataRow label="Saved" value={formatHistoryDateTime(item.savedAt)} />
+      </HistoryDetailSection>
+    </div>
   );
 }
 
@@ -529,6 +1713,14 @@ function HistoryFoodDetail({
   const detailBrand = product?.brand ?? item.brand;
   const ingredients = product ? splitIngredients(product.ingredientsText) : [];
   const nutrimentRows = product ? productDataRows(product.nutriments) : [];
+  const ingredientPreview = ingredients.slice(0, 3);
+  const [showAllIngredients, setShowAllIngredients] = useState(false);
+  const [showAllNutritionData, setShowAllNutritionData] = useState(false);
+
+  useEffect(() => {
+    setShowAllIngredients(false);
+    setShowAllNutritionData(false);
+  }, [item.barcode]);
 
   return (
     <div className="space-y-4">
@@ -606,19 +1798,49 @@ function HistoryFoodDetail({
             <HistoryDataRow label="Eco-Score" value={product.ecoscoreGrade?.toUpperCase() ?? "Not available"} />
           </HistoryDetailSection>
 
-          <HistoryDetailSection title="Ingredients">
+          <HistoryDetailSection
+            title="Ingredients"
+            action={
+              <HistorySectionExpandButton
+                expanded={showAllIngredients}
+                onClick={() => setShowAllIngredients((value) => !value)}
+                label={showAllIngredients ? "Hide full ingredient list" : "Show full ingredient list"}
+              />
+            }
+          >
             {product.ingredientsText ? (
               <>
-                <p className="rounded-[8px] bg-oat px-3 py-2 text-sm font-semibold leading-5 text-muted">{product.ingredientsText}</p>
-                {ingredients.length > 0 && (
-                  <div className="grid gap-2">
-                    {ingredients.map((ingredient) => (
-                      <div key={ingredient} className="flex items-start gap-2 rounded-[8px] border border-line bg-cream px-3 py-2">
-                        <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-leaf" />
-                        <p className="text-sm font-semibold leading-5">{ingredient}</p>
-                      </div>
+                <p className="text-sm font-semibold leading-5 text-muted">
+                  {ingredients.length > 0 ? `${ingredients.length} ingredient${ingredients.length === 1 ? "" : "s"} available.` : "Ingredient text available."}
+                </p>
+                {!showAllIngredients && ingredientPreview.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {ingredientPreview.map((ingredient) => (
+                      <span key={ingredient} className="rounded-full border border-line bg-cream px-3 py-1 text-xs font-black text-muted">
+                        {ingredient}
+                      </span>
                     ))}
+                    {ingredients.length > ingredientPreview.length && (
+                      <span className="rounded-full border border-line bg-oat px-3 py-1 text-xs font-black text-muted">
+                        +{ingredients.length - ingredientPreview.length} more
+                      </span>
+                    )}
                   </div>
+                )}
+                {showAllIngredients && (
+                  <>
+                    <p className="rounded-[8px] bg-oat px-3 py-2 text-sm font-semibold leading-5 text-muted">{product.ingredientsText}</p>
+                    {ingredients.length > 0 && (
+                      <div className="grid gap-2">
+                        {ingredients.map((ingredient) => (
+                          <div key={ingredient} className="flex items-start gap-2 rounded-[8px] border border-line bg-cream px-3 py-2">
+                            <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-leaf" />
+                            <p className="text-sm font-semibold leading-5">{ingredient}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             ) : (
@@ -633,13 +1855,29 @@ function HistoryFoodDetail({
             <HistoryChipGroup label="Labels" values={product.labelsTags} />
           </HistoryDetailSection>
 
-          <HistoryDetailSection title="Nutrition data">
+          <HistoryDetailSection
+            title="Nutrition data"
+            action={
+              <HistorySectionExpandButton
+                expanded={showAllNutritionData}
+                onClick={() => setShowAllNutritionData((value) => !value)}
+                label={showAllNutritionData ? "Hide full nutrition data" : "Show full nutrition data"}
+              />
+            }
+          >
             {nutrimentRows.length > 0 ? (
-              <div className="grid gap-2">
-                {nutrimentRows.map(([key, value]) => (
-                  <HistoryDataRow key={key} label={formatDataKey(key)} value={formatDataValue(value)} />
-                ))}
-              </div>
+              <>
+                <p className="text-sm font-semibold leading-5 text-muted">
+                  {nutrimentRows.length} nutrition field{nutrimentRows.length === 1 ? "" : "s"} available.
+                </p>
+                {showAllNutritionData && (
+                  <div className="grid gap-2">
+                    {nutrimentRows.map(([key, value]) => (
+                      <HistoryDataRow key={key} label={formatDataKey(key)} value={formatDataValue(value)} />
+                    ))}
+                  </div>
+                )}
+              </>
             ) : (
               <p className="text-sm font-semibold text-muted">No nutrition data was provided for this product.</p>
             )}
@@ -664,12 +1902,29 @@ function HistoryFoodDetail({
   );
 }
 
-function HistoryDetailSection({ title, children }: { title: string; children: ReactNode }) {
+function HistoryDetailSection({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
     <div className="bento-card space-y-3 p-4">
-      <h3 className="text-base font-black">{title}</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-base font-black">{title}</h3>
+        {action}
+      </div>
       {children}
     </div>
+  );
+}
+
+function HistorySectionExpandButton({ expanded, onClick, label }: { expanded: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf/35"
+      onClick={onClick}
+      aria-label={label}
+      aria-expanded={expanded}
+    >
+      <ChevronRight className={`transition-transform duration-300 ease-out ${expanded ? "rotate-90" : ""}`} size={22} />
+    </button>
   );
 }
 
@@ -699,41 +1954,6 @@ function HistoryChipGroup({ label, values }: { label: string; values: string[] }
       )}
     </div>
   );
-}
-
-function groupScanHistoryByDate(history: ScanHistoryItem[]): HistoryDateGroup[] {
-  const groups = new Map<string, ScanHistoryItem[]>();
-
-  for (const item of history) {
-    const dateKey = historyDateKey(item.scannedAt);
-    groups.set(dateKey, [...(groups.get(dateKey) ?? []), item]);
-  }
-
-  return Array.from(groups.entries())
-    .sort(([left], [right]) => right.localeCompare(left))
-    .map(([dateKey, items]) => ({
-      dateKey,
-      label: formatHistoryDateLabel(dateKey),
-      items,
-    }));
-}
-
-function historyDateKey(value: string): string {
-  const date = new Date(value);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatHistoryDateLabel(dateKey: string): string {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(year, month - 1, day));
 }
 
 function formatHistoryDateTime(value: string): string {
@@ -786,48 +2006,42 @@ function formatDataValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function alternativeAt(alternatives: AlternativeProduct[], index: number): AlternativeProduct {
-  if (alternatives.length === 0) {
-    return FALLBACK_SWAP;
-  }
-
-  return alternatives[index % alternatives.length] ?? alternatives[0];
-}
-
 function SwapScreen({
   products,
   settings,
   detail,
-  alternativeIndexes,
   acceptedSwapIds,
-  celebrationIds,
+  savedSwapKeys,
   onDetailChange,
   onAlternativeAccept,
-  onAlternativeReject,
 }: {
   products: Product[];
   settings: AppSettings;
   detail: SwapDetail | null;
-  alternativeIndexes: SwapAlternativeIndexes;
   acceptedSwapIds: AcceptedSwapIds;
-  celebrationIds: SwapCelebrationIds;
+  savedSwapKeys: ReadonlySet<string>;
   onDetailChange: (detail: SwapDetail | null) => void;
   onAlternativeAccept: (product: Product, alternative: AlternativeProduct) => void;
-  onAlternativeReject: (product: Product) => void;
 }) {
+  const currentProduct = products[0] ?? null;
+  const currentScore = currentProduct ? scoreProduct(currentProduct, settings) : null;
+  const currentAlternatives = currentProduct ? getAlternatives(currentProduct) : [FALLBACK_SWAP];
+  const visibleAlternatives = currentAlternatives.length > 0 ? currentAlternatives : [FALLBACK_SWAP];
   const hasStarterDetail = detail?.barcode === "starter";
-  const selectedProduct = detail ? products.find((entry) => entry.barcode === detail.barcode) ?? null : null;
+  const selectedProduct = detail && currentProduct?.barcode === detail.barcode ? currentProduct : null;
   const selectedScore = selectedProduct ? scoreProduct(selectedProduct, settings) : null;
-  const selectedAlternatives = selectedProduct ? getAlternatives(selectedProduct) : [];
-  const selectedAlternativeIndex = selectedProduct ? alternativeIndexes[selectedProduct.barcode] ?? 0 : 0;
-  const selectedAlternative = alternativeAt(selectedAlternatives, selectedAlternativeIndex);
+  const selectedAlternatives = selectedProduct ? getAlternatives(selectedProduct) : [FALLBACK_SWAP];
+  const selectedAlternative =
+    detail?.alternativeId && selectedAlternatives.length > 0
+      ? selectedAlternatives.find((entry) => entry.id === detail.alternativeId) ?? selectedAlternatives[0]
+      : selectedAlternatives[0] ?? FALLBACK_SWAP;
   const selectedProductIsBetterPick = Boolean(selectedProduct && selectedScore && selectedScore.value >= 8);
 
   return (
     <AnimatePresence mode="wait" initial={false}>
       {detail && (selectedProduct || hasStarterDetail) ? (
         <motion.div
-          key={`${detail.barcode}-${detail.side}`}
+          key={`${detail.barcode}-${detail.side}-${selectedAlternative.id}`}
           initial={{ opacity: 0, x: 28 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -20 }}
@@ -853,38 +2067,38 @@ function SwapScreen({
           transition={{ duration: 0.22 }}
           className="space-y-4"
         >
-          <SectionTitle eyebrow="Swap" title={products.length > 0 ? "All scanned swaps" : "Interchangeable picks"} />
+          <SectionTitle eyebrow="Swap" title={currentProduct ? "Recommended swaps" : "Interchangeable picks"} />
 
-          {products.length > 0 ? (
-            <div className="space-y-4">
-              {products.map((entry) => {
-                const entryScore = scoreProduct(entry, settings);
-                const entryAlternatives = getAlternatives(entry);
-                const entryAlternativeIndex = alternativeIndexes[entry.barcode] ?? 0;
-                const entryAlternative = alternativeAt(entryAlternatives, entryAlternativeIndex);
-                return (
-                  <SwapComparisonCard
-                    key={entry.barcode}
-                    product={entry}
-                    score={entryScore}
-                    alternative={entryAlternative}
-                    alternativeIndex={entryAlternativeIndex}
-                    alternativeCount={entryAlternatives.length}
-                    isAccepted={acceptedSwapIds[entry.barcode] === entryAlternative.id}
-                    isCelebrating={celebrationIds[entry.barcode] === entryAlternative.id}
-                    onDetailChange={(side) => onDetailChange({ barcode: entry.barcode, side })}
-                    onAlternativeAccept={() => onAlternativeAccept(entry, entryAlternative)}
-                    onAlternativeReject={() => onAlternativeReject(entry)}
-                  />
-                );
-              })}
+          {currentProduct ? (
+            <div className="space-y-3">
+              {visibleAlternatives.map((alternative) => (
+                <SwapRecommendationCard
+                  key={alternative.id}
+                  product={currentProduct}
+                  alternative={alternative}
+                  isSaved={
+                    acceptedSwapIds[currentProduct.barcode] === alternative.id ||
+                    savedSwapKeys.has(createSavedSwapStateKey(currentProduct.barcode, alternative.id))
+                  }
+                  scannedProductIsBetterPick={Boolean(currentScore && currentScore.value >= 8)}
+                  onOpenDetail={() =>
+                    onDetailChange({
+                      barcode: currentProduct.barcode,
+                      side: "alternative",
+                      alternativeId: alternative.id,
+                    })
+                  }
+                  onSave={() => onAlternativeAccept(currentProduct, alternative)}
+                />
+              ))}
             </div>
           ) : (
-            <SwapComparisonCard
+            <SwapRecommendationCard
               product={null}
-              score={null}
               alternative={FALLBACK_SWAP}
-              onDetailChange={(side) => onDetailChange({ barcode: "starter", side })}
+              isSaved={false}
+              scannedProductIsBetterPick={false}
+              onOpenDetail={() => onDetailChange({ barcode: "starter", side: "alternative", alternativeId: FALLBACK_SWAP.id })}
             />
           )}
         </motion.div>
@@ -893,178 +2107,80 @@ function SwapScreen({
   );
 }
 
-function SwapComparisonCard({
+function SwapRecommendationCard({
   product,
-  score,
   alternative,
-  alternativeIndex = 0,
-  alternativeCount = 0,
-  isAccepted = false,
-  isCelebrating = false,
-  onDetailChange,
-  onAlternativeAccept,
-  onAlternativeReject,
+  isSaved,
+  scannedProductIsBetterPick,
+  onOpenDetail,
+  onSave,
 }: {
   product: Product | null;
-  score: QualityScore | null;
   alternative: AlternativeProduct;
-  alternativeIndex?: number;
-  alternativeCount?: number;
-  isAccepted?: boolean;
-  isCelebrating?: boolean;
-  onDetailChange: (side: SwapDetailSide) => void;
-  onAlternativeAccept?: () => void;
-  onAlternativeReject?: () => void;
+  isSaved: boolean;
+  scannedProductIsBetterPick: boolean;
+  onOpenDetail: () => void;
+  onSave?: () => void;
 }) {
-  const scannedProductIsLessIdeal = Boolean(product && score && score.value < 8);
-  const scannedProductIsBetterPick = Boolean(product && score && score.value >= 8);
   const alternativeName = alternative.brand ? `${alternative.brand} ${alternative.name}` : alternative.name;
-  const leftName = product?.name ?? "Burger King fries";
-  const leftDetail = product ? scannedProductDetail(product, score) : "Fast-food fries";
-  const rightDetail = scannedProductIsBetterPick ? `Similar or better: ${alternative.scoreHint}` : alternative.scoreHint;
-  const originalImageUrl = product ? product.imageUrl : burgerKingFries;
-  const alternativeImageUrl = product ? alternativeImageFor(alternative) : boulderCanyonChips;
-  const originalTone = scannedProductIsLessIdeal || !product ? "bad" : "good";
-  const originalLabel = product ? (scannedProductIsBetterPick ? "Current pick" : "Scanned food") : "Less ideal";
-  const alternativeLabel = scannedProductIsBetterPick ? "Similar or better" : "Better swap";
-  const swapSummary = product
-    ? scannedProductIsLessIdeal
-      ? `${product.name} is paired with the first cleaner alternative for its category.`
-      : `${product.name} already scores well, so BetterBite suggests a similar option with equal or cleaner ingredient quality.`
-    : "Scan products to build a running list of personalized swaps.";
+  const meta = alternative.brand ? `${alternative.brand} - ${alternative.category}` : alternative.category;
+  const scoreHint = scannedProductIsBetterPick ? `Similar or better - ${alternative.scoreHint}` : alternative.scoreHint;
+  const similarity = alternative.similarityReason ?? "Keeps the same eating occasion while moving toward a cleaner ingredient profile.";
+  const estimatedPrice = estimatedSwapPrice(alternative);
+  const imageUrl = alternativeImageFor(alternative);
 
   return (
-    <div className="bento-card relative overflow-hidden">
-      <div className="bg-oat px-4 py-3">
-        <p className="text-sm font-bold leading-6 text-muted">{swapSummary}</p>
-      </div>
-
-      <div className="grid grid-cols-[1fr_44px_1fr] items-start gap-2 p-4">
-        <SwapFoodPanel
-          tone={originalTone}
-          label={originalLabel}
-          name={leftName}
-          detail={leftDetail}
-          imageUrl={originalImageUrl}
-          onSelect={() => onDetailChange("original")}
-        />
-
-        <div className="flex h-[132px] items-center justify-center">
-          <div
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-cream text-ink shadow-inset"
-            aria-label="Interchangeable foods"
-            title="Interchangeable foods"
-          >
-            <RefreshCw size={22} strokeWidth={2.5} />
-          </div>
+    <article className={`bento-card overflow-hidden border ${isSaved ? "border-leaf/50" : "border-transparent"}`}>
+      <button
+        type="button"
+        className="grid w-full grid-cols-[82px_minmax(0,1fr)] gap-3 p-4 text-left outline-none transition hover:bg-oat/45 focus-visible:ring-2 focus-visible:ring-leaf/35"
+        onClick={onOpenDetail}
+        aria-label={`View details for ${alternativeName}`}
+      >
+        <div className="flex h-[82px] w-[82px] items-center justify-center overflow-hidden rounded-[8px] bg-oat text-leaf">
+          {imageUrl ? <img className="h-full w-full object-contain p-2" src={imageUrl} alt={alternativeName} /> : <Apple size={36} />}
         </div>
 
-        <SwapFoodPanel
-          tone="good"
-          label={alternativeLabel}
-          name={alternativeName}
-          detail={rightDetail}
-          imageUrl={alternativeImageUrl}
-          onSelect={() => onDetailChange("alternative")}
-        />
+        <div className="min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[10px] font-black uppercase leading-4 tracking-[0.16em] text-leaf">{meta}</p>
+            {isSaved && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-leaf/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-leaf">
+                <CheckCircle2 size={12} />
+                Saved
+              </span>
+            )}
+          </div>
+          <h3 className="mt-1 line-clamp-2 text-base font-black leading-5 text-ink">{alternativeName}</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <p className="text-xs font-black text-muted">{scoreHint}</p>
+            <span className="inline-flex items-center gap-1 rounded-full border border-line bg-cream px-2.5 py-1 text-xs font-black text-ink">
+              <DollarSign size={13} />
+              Est. {estimatedPrice}
+            </span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-muted">{alternative.reason}</p>
+          <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-ink">{similarity}</p>
+        </div>
+      </button>
+
+      <div className="border-t border-line bg-cream px-4 py-3">
+        <button
+          type="button"
+          className={`flex h-11 w-full items-center justify-center gap-2 rounded-[8px] text-sm font-black outline-none transition focus-visible:ring-2 focus-visible:ring-leaf/35 ${
+            isSaved
+              ? "bg-leaf text-white shadow-[0_10px_20px_rgba(13,83,14,0.16)]"
+              : "bg-ink text-white hover:-translate-y-0.5 hover:bg-leaf disabled:cursor-not-allowed disabled:translate-y-0 disabled:bg-muted"
+          }`}
+          onClick={onSave}
+          disabled={!product || !onSave}
+          aria-pressed={product ? isSaved : undefined}
+        >
+          {isSaved ? <CheckCircle2 size={18} /> : <Sparkles size={18} />}
+          {isSaved ? "Saved Swap" : "Save Swap"}
+        </button>
       </div>
-
-      <AnimatePresence initial={false}>
-        {product && !isAccepted && (
-          <motion.div
-            key="swap-feedback"
-            className="overflow-hidden border-t border-line bg-cream"
-            initial={{ opacity: 1, height: "auto", y: 0 }}
-            animate={{ opacity: 1, height: "auto", y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -18 }}
-            transition={{ duration: 0.28, ease: "easeOut" }}
-          >
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-muted">Good swap?</p>
-                <p className="mt-1 text-xs font-bold text-muted">
-                  Option {(alternativeIndex % Math.max(alternativeCount, 1)) + 1} of {Math.max(alternativeCount, 1)}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  className="inline-flex h-10 items-center gap-1.5 rounded-[8px] bg-oat px-3 text-xs font-black text-leaf outline-none transition hover:bg-sky focus-visible:ring-2 focus-visible:ring-leaf/35"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={onAlternativeAccept}
-                  aria-label={`Yes, save ${alternativeName}`}
-                >
-                  <ThumbsUp size={16} />
-                  Yes
-                </button>
-                <button
-                  className="inline-flex h-10 items-center gap-1.5 rounded-[8px] bg-oat px-3 text-xs font-black text-ink outline-none transition hover:bg-sky focus-visible:ring-2 focus-visible:ring-leaf/35 disabled:cursor-not-allowed disabled:opacity-45"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={onAlternativeReject}
-                  disabled={alternativeCount <= 1}
-                  aria-label={`No, show another swap instead of ${alternativeName}`}
-                >
-                  <ThumbsDown size={16} />
-                  No
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {product && isCelebrating && <SwapAcceptedConfetti key={`${product.barcode}-${alternative.id}`} />}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function SwapAcceptedConfetti() {
-  const pieces = [
-    { x: -58, y: -64, rotate: -28, color: "#306D29", shape: "rounded-full", delay: 0 },
-    { x: -38, y: -86, rotate: 34, color: "#E7E1B1", shape: "rounded-[2px]", delay: 0.03 },
-    { x: -14, y: -72, rotate: 108, color: "#0D530E", shape: "rounded-[2px]", delay: 0.06 },
-    { x: 16, y: -92, rotate: -76, color: "#306D29", shape: "rounded-full", delay: 0.02 },
-    { x: 42, y: -68, rotate: 146, color: "#E7E1B1", shape: "rounded-[2px]", delay: 0.08 },
-    { x: 60, y: -42, rotate: -132, color: "#0D530E", shape: "rounded-full", delay: 0.05 },
-    { x: -64, y: -30, rotate: 88, color: "#E7E1B1", shape: "rounded-[2px]", delay: 0.09 },
-    { x: 2, y: -112, rotate: 18, color: "#306D29", shape: "rounded-[2px]", delay: 0.12 },
-    { x: 30, y: -24, rotate: 72, color: "#0D530E", shape: "rounded-[2px]", delay: 0.11 },
-  ];
-
-  return (
-    <motion.div
-      className="pointer-events-none absolute bottom-7 right-10 h-2 w-2"
-      initial={{ opacity: 1 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      aria-hidden="true"
-    >
-      {pieces.map((piece) => (
-        <motion.span
-          key={`${piece.x}-${piece.y}`}
-          className={`absolute left-0 top-0 h-2 w-3 ${piece.shape}`}
-          style={{ backgroundColor: piece.color }}
-          initial={{ opacity: 0, x: 0, y: 0, rotate: 0, scale: 0.4 }}
-          animate={{
-            opacity: [0, 1, 1, 0],
-            x: [0, piece.x, piece.x * 1.05],
-            y: [0, piece.y, piece.y + 34],
-            rotate: [0, piece.rotate, piece.rotate + 70],
-            scale: [0.4, 1, 0.75],
-          }}
-          transition={{ duration: 0.95, delay: piece.delay, ease: "easeOut" }}
-        />
-      ))}
-      <motion.span
-        className="absolute left-0 top-0 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-leaf"
-        initial={{ opacity: 0, scale: 0.2 }}
-        animate={{ opacity: [0, 0.7, 0], scale: [0.2, 1.45, 1.8] }}
-        transition={{ duration: 0.55, ease: "easeOut" }}
-      />
-    </motion.div>
+    </article>
   );
 }
 
@@ -1165,39 +2281,6 @@ function SwapFoodDetailScreen({
   );
 }
 
-function SwapFoodPanel({
-  tone,
-  label,
-  name,
-  detail,
-  imageUrl,
-  onSelect,
-}: {
-  tone: "bad" | "good";
-  label: string;
-  name: string;
-  detail: string;
-  imageUrl?: string;
-  onSelect: () => void;
-}) {
-  const isBad = tone === "bad";
-
-  return (
-    <button className="min-w-0 text-left" onClick={onSelect} aria-label={`View details for ${name}`}>
-      <div
-        className={`flex aspect-square w-full items-center justify-center overflow-hidden rounded-[8px] border ${
-          isBad ? "border-line bg-sky" : "border-line bg-oat"
-        }`}
-      >
-        {imageUrl ? <img className="h-full w-full object-contain p-2" src={imageUrl} alt={name} /> : <Apple className="text-leaf" size={34} />}
-      </div>
-      <p className={`mt-3 text-[10px] font-black uppercase tracking-[0.16em] ${isBad ? "text-ink" : "text-leaf"}`}>{label}</p>
-      <h3 className="mt-1 line-clamp-2 text-sm font-black leading-5">{name}</h3>
-      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-muted">{detail}</p>
-    </button>
-  );
-}
-
 function originalSwapReason(score: QualityScore | null): string {
   if (score) {
     return score.summary;
@@ -1225,6 +2308,59 @@ function scannedProductDetail(product: Product, score: QualityScore | null): str
 
 function alternativeImageFor(alternative: AlternativeProduct): string | undefined {
   return alternative.id === FALLBACK_SWAP.id ? boulderCanyonChips : undefined;
+}
+
+function estimatedSwapPrice(alternative: AlternativeProduct): string {
+  return ESTIMATED_SWAP_PRICES[alternative.id] ?? "$4.99";
+}
+
+function createSavedSwapHistoryItem({
+  product,
+  score,
+  alternative,
+  scanHistoryItem,
+}: {
+  product: Product;
+  score: QualityScore;
+  alternative: AlternativeProduct;
+  scanHistoryItem?: ScanHistoryItem;
+}): SavedSwapHistoryItem {
+  const savedAt = new Date().toISOString();
+
+  return {
+    id: createSavedSwapHistoryId(product.barcode, alternative.id),
+    savedAt,
+    scannedProduct: {
+      barcode: product.barcode,
+      name: product.name,
+      brand: product.brand,
+      score: score.value,
+      imageUrl: product.imageUrl,
+      scannedAt: scanHistoryItem?.scannedAt ?? savedAt,
+    },
+    swap: {
+      id: alternative.id,
+      name: alternative.name,
+      brand: alternative.brand,
+      category: alternative.category,
+      reason: alternative.reason,
+      scoreHint: alternative.scoreHint,
+      similarityReason: alternative.similarityReason,
+      estimatedPrice: estimatedSwapPrice(alternative),
+    },
+  };
+}
+
+function createSavedSwapHistoryId(barcode: string, alternativeId: string): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${barcode}-${alternativeId}-${Date.now()}`;
+}
+
+function createSavedSwapStateKey(barcode: string, alternativeId: string): string {
+  return `${barcode}::${alternativeId}`;
 }
 
 function betterSwapReason(alternative: AlternativeProduct): string {
@@ -1272,7 +2408,16 @@ function similarOrBetterSupportingReasons(alternative: AlternativeProduct, score
 
 function ActivityCard({ chart }: { chart: ActivityChart }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const compactDayLabels = ["M", "T", "W", "T", "F", "S", "S"];
+  const currentWeekRange = formatActivityWeekRange(chart.currentWeek);
+  const activityHistoryTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : {
+        height: { duration: 0.34, ease: [0.22, 1, 0.36, 1] },
+        opacity: { duration: 0.2, ease: "easeOut" },
+        y: { duration: 0.24, ease: "easeOut" },
+      };
 
   return (
     <div className="bento-card overflow-hidden p-4">
@@ -1282,32 +2427,44 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
             <CalendarDays size={21} />
           </div>
           <div>
-            <h2 className="text-lg font-black">Streak</h2>
-            <p className="mt-0.5 text-sm font-bold text-muted">{chart.currentStreak} day streak</p>
+            <p className="text-base font-black text-ink">{chart.currentStreak} day streak</p>
           </div>
         </div>
         <button
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink"
           onClick={() => setIsExpanded((value) => !value)}
           aria-label={isExpanded ? "Hide full activity history" : "Show full activity history"}
+          aria-expanded={isExpanded}
         >
-          <ChevronRight className={`transition ${isExpanded ? "rotate-90" : ""}`} size={22} />
+          <ChevronRight className={`transition-transform duration-300 ease-out ${isExpanded ? "rotate-90" : ""}`} size={22} />
         </button>
       </div>
+
+      {currentWeekRange && <p className="mt-3 whitespace-nowrap text-[11px] font-black text-leaf">Current week: {currentWeekRange}</p>}
 
       <div className="mt-4">
         <div className="grid grid-cols-7 gap-2 rounded-full bg-berry p-1">
           {chart.currentWeek.map((day) => {
             const hasActivity = day.count > 0;
+            const isMissedLogin = !hasActivity && !day.isFuture;
             return (
               <span
                 key={day.date}
                 aria-label={`${day.date}: ${day.count} activity point${day.count === 1 ? "" : "s"}`}
-                className={`flex h-9 items-center justify-center rounded-full ${compactActivityColor(day.level, day.isFuture)}`}
+                className={`flex h-9 w-9 justify-self-center items-center justify-center rounded-full ${hasActivity ? "bg-[#5E8E45]" : compactActivityColor(day.level, day.isFuture)}`}
                 title={`${day.date}: ${day.count} activity point${day.count === 1 ? "" : "s"}`}
               >
-                {hasActivity && <CheckCircle2 size={21} strokeWidth={3} className="text-cream" />}
-                {!hasActivity && <span className="h-3 w-3 rounded-full bg-cream/15" />}
+                {hasActivity && (
+                  <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-cream">
+                    <CheckCircle2 size={16} strokeWidth={3} className="text-[#5E8E45]" />
+                  </span>
+                )}
+                {isMissedLogin && (
+                  <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-cream">
+                    <CircleX className="text-[#E92D48]" size={16} strokeWidth={3} aria-hidden="true" />
+                  </span>
+                )}
+                {!hasActivity && !isMissedLogin && <span className="h-3 w-3 rounded-full bg-cream/15" />}
               </span>
             );
           })}
@@ -1317,7 +2474,7 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
             const day = chart.currentWeek[index];
             const isActive = Boolean(day && day.count > 0);
             return (
-            <span key={`${label}-${index}`} className={`text-xs font-black ${isActive ? "text-leaf" : "text-muted"}`}>
+              <span key={`${label}-${index}`} className={`text-xs font-black ${isActive ? "text-leaf" : "text-muted"}`}>
                 {label}
               </span>
             );
@@ -1325,7 +2482,20 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
         </div>
       </div>
 
-      {isExpanded && <FullActivityChart chart={chart} />}
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            key="full-activity-history"
+            initial={{ height: 0, opacity: 0, y: -8 }}
+            animate={{ height: "auto", opacity: 1, y: 0 }}
+            exit={{ height: 0, opacity: 0, y: -8 }}
+            transition={activityHistoryTransition}
+            className="overflow-hidden"
+          >
+            <FullActivityChart chart={chart} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1392,11 +2562,11 @@ function ScannerCard({
   return (
     <div className="bento-card overflow-hidden">
       <div className="grid min-h-[190px] grid-cols-[1.05fr_0.95fr]">
-        <div className="bg-leaf p-5 text-cream">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-cream/85">Barcode</p>
+        <div className="bg-gradient-to-br from-[#12C8CA] to-[#007A79] p-5 text-white">
+          <p className="text-xs font-black uppercase tracking-[0.24em] text-white/85">Barcode</p>
           <h2 className="mt-3 text-2xl font-black leading-tight">Scan an ingredient label fast</h2>
           <button
-            className="mt-5 inline-flex items-center gap-2 rounded-full bg-berry px-4 py-3 text-sm font-black outline-none transition focus-visible:ring-2 focus-visible:ring-cream/70"
+            className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-black text-[#00696B] shadow-[0_12px_24px_rgba(0,105,107,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-white/70"
             onMouseDown={(event) => event.preventDefault()}
             onClick={onCameraScan}
           >
@@ -1404,29 +2574,29 @@ function ScannerCard({
             Camera
           </button>
         </div>
-        <div className="flex items-center justify-center bg-sky p-4">
-          <div className="rounded-[26px] bg-cream/75 p-5 text-leaf shadow-soft">
+        <div className="flex items-center justify-center bg-[#DDF7EF] p-4">
+          <div className="rounded-[26px] bg-white p-5 text-[#12C8CA] shadow-[0_14px_32px_rgba(0,180,184,0.12)]">
             <Barcode size={76} strokeWidth={1.8} />
           </div>
         </div>
       </div>
 
       <form className="space-y-3 p-4" onSubmit={onSubmit}>
-        <label className="text-xs font-black uppercase tracking-[0.2em] text-muted" htmlFor="barcode">
+        <label className="text-xs font-black uppercase tracking-[0.2em] text-[#00696B]" htmlFor="barcode">
           UPC or EAN
         </label>
         <div className="flex gap-2">
           <input
             id="barcode"
             inputMode="numeric"
-            className="min-w-0 flex-1 rounded-[8px] border border-line bg-cream px-4 py-3 text-base font-bold outline-none transition focus:border-leaf"
+            className="min-w-0 flex-1 rounded-[14px] border border-line bg-white px-4 py-3 text-base font-bold text-[#1F2629] outline-none transition placeholder:text-[#667080] focus:border-[#00C5C8] focus:ring-2 focus:ring-[#00C5C8]/20"
             placeholder="5449000000996"
             value={barcode}
             onChange={(event) => onBarcodeChange(event.target.value)}
           />
           <button
             type="submit"
-            className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[8px] bg-ink text-cream outline-none transition focus-visible:ring-2 focus-visible:ring-leaf/35 disabled:opacity-60"
+            className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[14px] bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 disabled:opacity-60"
             onMouseDown={(event) => event.preventDefault()}
             disabled={isLoading}
             aria-label="Search barcode"
@@ -1435,7 +2605,7 @@ function ScannerCard({
           </button>
         </div>
         {error && (
-          <div className="flex items-start gap-2 rounded-[8px] bg-oat px-3 py-2 text-sm font-semibold text-ink">
+          <div className="flex items-start gap-2 rounded-[8px] bg-[#DDF7EF] px-3 py-2 text-sm font-semibold text-[#00696B]">
             <AlertTriangle className="mt-0.5 shrink-0" size={16} />
             <span>{error}</span>
           </div>
@@ -1448,12 +2618,12 @@ function ScannerCard({
 function EmptyState() {
   return (
     <div className="grid grid-cols-2 gap-3">
-      <div className="bento-card bg-oat p-4">
+      <div className="bento-card bg-white p-4">
         <Apple className="mb-5 text-leaf" size={30} />
         <h2 className="text-lg font-black">Ingredient-first</h2>
         <p className="mt-2 text-sm leading-6 text-muted">Scores focus on processing and ingredient quality.</p>
       </div>
-      <div className="bento-card bg-cream p-4">
+      <div className="bento-card bg-white p-4">
         <CheckCircle2 className="mb-5 text-coral" size={30} />
         <h2 className="text-lg font-black">Clear swaps</h2>
         <p className="mt-2 text-sm leading-6 text-muted">Alternatives are curated by product category.</p>
@@ -1466,10 +2636,12 @@ function ProductResult({
   product,
   score,
   alternatives,
+  showAlternatives = true,
 }: {
   product: Product;
   score: QualityScore;
   alternatives: AlternativeProduct[];
+  showAlternatives?: boolean;
 }) {
   return (
     <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }} className="space-y-4">
@@ -1488,27 +2660,29 @@ function ProductResult({
       <FlagSection title="Ingredient flags" flags={score.flags} emptyText="No major ingredient-quality flags found." />
       <FlagSection title="Positive signals" flags={score.positives} emptyText="No positive clean-label signals found yet." />
 
-      <div className="space-y-3">
-        <SectionTitle eyebrow="Curated" title="Cleaner alternatives" />
-        <div className="grid gap-3">
-          {alternatives.map((alternative) => (
-            <div key={alternative.id} className="bento-card flex items-start gap-3 p-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] bg-oat text-leaf">
-                <Sparkles size={20} />
+      {showAlternatives && (
+        <div className="space-y-3">
+          <SectionTitle eyebrow="Curated" title="Cleaner alternatives" />
+          <div className="grid gap-3">
+            {alternatives.map((alternative) => (
+              <div key={alternative.id} className="bento-card flex items-start gap-3 p-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] bg-oat text-leaf">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-muted">{alternative.category}</p>
+                  <h3 className="mt-1 text-base font-black">
+                    {alternative.brand ? `${alternative.brand} ` : ""}
+                    {alternative.name}
+                  </h3>
+                  <p className="mt-1 text-sm leading-5 text-muted">{alternative.reason}</p>
+                  <p className="mt-2 text-xs font-black text-leaf">{alternative.scoreHint}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-muted">{alternative.category}</p>
-                <h3 className="mt-1 text-base font-black">
-                  {alternative.brand ? `${alternative.brand} ` : ""}
-                  {alternative.name}
-                </h3>
-                <p className="mt-1 text-sm leading-5 text-muted">{alternative.reason}</p>
-                <p className="mt-2 text-xs font-black text-leaf">{alternative.scoreHint}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </motion.div>
   );
 }
@@ -1584,12 +2758,12 @@ function NavButton({
   return (
     <button
       data-testid={testId}
-      className={`flex flex-col items-center gap-1 rounded-[8px] py-1 text-xs font-black outline-none transition focus-visible:ring-2 focus-visible:ring-leaf/35 ${active ? "text-leaf" : "text-muted"}`}
+      className="group mx-0.5 flex h-[62px] flex-col items-center justify-center gap-1 rounded-full px-1 text-xs font-black text-[#3B4949] outline-none transition focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
     >
-      <span className={`flex h-9 w-9 items-center justify-center rounded-full ${active ? "bg-leaf text-cream" : "bg-transparent"}`}>{icon}</span>
-      {label}
+      <span className={`flex h-6 w-6 items-center justify-center transition-colors ${active ? "text-[#0D8F68]" : "text-current group-hover:text-[#00696B]"}`}>{icon}</span>
+      <span className="text-[#3B4949]">{label}</span>
     </button>
   );
 }
@@ -1601,6 +2775,15 @@ function scoreColor(value: number): string {
   if (value <= 6) return "bg-[#f7dc62]";
   if (value <= 8) return "bg-[#b7e55f]";
   return "bg-[#73c84d]";
+}
+
+function scoreAccentColor(value: number): string {
+  if (value <= 2) return "#df2f46";
+  if (value <= 3) return "#f17955";
+  if (value <= 5) return "#f4b65b";
+  if (value <= 6) return "#f7dc62";
+  if (value <= 8) return "#b7e55f";
+  return "#73c84d";
 }
 
 function scoreTextColor(value: number): string {
@@ -1627,7 +2810,7 @@ function activityCellColor(level: number, isFuture: boolean): string {
 
 function compactActivityColor(level: number, isFuture: boolean): string {
   if (isFuture) return "bg-cream/20";
-  if (level <= 0) return "bg-berry";
+  if (level <= 0) return "bg-[#df2f46]";
   if (level === 1) return "bg-[#174f18]";
   if (level === 2) return "bg-leaf";
   if (level === 3) return "bg-[#4d873f]";
@@ -1636,6 +2819,64 @@ function compactActivityColor(level: number, isFuture: boolean): string {
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
+}
+
+function canUseLaptopCameraPreview(): boolean {
+  return isBrowserCameraPreviewSupported() && !isLikelyMobileRuntime();
+}
+
+function isLikelyMobileRuntime(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function stopMediaStream(stream: MediaStream | null): void {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
+function getBrowserCameraErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") {
+      return getBrowserCameraBlockedMessage();
+    }
+
+    if (error.name === "NotFoundError") {
+      return "No camera was found on this laptop.";
+    }
+
+    if (error.name === "NotReadableError") {
+      return "The camera is already being used by another app.";
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Camera scanning is unavailable on this target.";
+}
+
+async function getBrowserCameraPermissionState(): Promise<PermissionState | null> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+    return null;
+  }
+
+  try {
+    const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return status.state;
+  } catch {
+    return null;
+  }
+}
+
+function getBrowserCameraBlockedMessage(): string {
+  const host = typeof window !== "undefined" ? window.location.host : "";
+  const hostCopy = host ? ` for ${host}` : "";
+
+  return `Camera permission is blocked for this site. Allow camera access${hostCopy} in your browser settings, then tap Try camera again.`;
 }
 
 function recordLoginActivityOnce(): ActivityDay[] | null {
