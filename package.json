@@ -9,7 +9,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typesense:seed": "node --env-file-if-exists=.env scripts/seed-typesense.mjs",
+    "typesense:reset": "node --env-file-if-exists=.env scripts/seed-typesense.mjs --reset"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -17,19 +19,21 @@
     "lucide-react": "^0.468.0",
     "motion": "^12.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "typesense": "^3.0.6"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.28.1",
     "postcss": "^8.4.49",
     "tailwindcss": "3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^6.4.2",
-    "vitest": "^4.1.7"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   }
 }

@@ -40,6 +40,71 @@ describe("structured alternative taxonomy", () => {
     expect(alternatives[0].category).toBe("Protein bar");
     expect(alternatives[0].name).toMatch(/protein/i);
   });
+
+  it("keeps a bad tortilla chip scan in the salty chip lane", () => {
+    const alternatives = getAlternatives(
+      testProduct({
+        name: "Nacho Cheese Tortilla Chips",
+        categoriesText: "Tortilla chips, Corn chips, Salty snacks",
+        ingredientsText: "Corn, vegetable oil, maltodextrin, artificial color red 40, yellow 6, natural flavors",
+      }),
+    );
+
+    expect(alternatives[0]).toMatchObject({
+      category: "Tortilla chips",
+      brand: "Siete",
+    });
+    expect(alternatives.map((alternative) => alternative.category)).not.toContain("Fruit");
+  });
+
+  it("keeps a sugary soda scan in the cold bubbly drink lane", () => {
+    const alternatives = getAlternatives(
+      testProduct({
+        name: "Classic Cola Soda",
+        categoriesText: "Sodas, Carbonated drinks",
+        ingredientsText: "Carbonated water, high fructose corn syrup, caramel color, phosphoric acid, natural flavors",
+      }),
+    );
+
+    expect(alternatives[0]).toMatchObject({
+      category: "Soda",
+      name: "Sparkling water",
+    });
+    expect(alternatives.map((alternative) => alternative.name)).toContain("Vintage Cola");
+  });
+
+  it("keeps cookies as cleaner sweet snacks instead of savory protein swaps", () => {
+    const alternatives = getAlternatives(
+      testProduct({
+        name: "Chocolate Sandwich Cookies",
+        categoriesText: "Cookies, Sweet snacks",
+        ingredientsText: "Wheat flour, sugar, palm oil, cocoa, high fructose corn syrup, artificial flavor",
+      }),
+    );
+
+    expect(alternatives[0]).toMatchObject({
+      category: "Cookies",
+      brand: "Simple Mills",
+    });
+    expect(alternatives.map((alternative) => alternative.category)).not.toContain("Jerky");
+  });
+
+  it("does not let incidental ingredient words override the product category", () => {
+    const product = testProduct({
+      name: "Chocolate Chip Cookies",
+      categoriesText: "Cookies, Sweet snacks",
+      ingredientsText: "Wheat flour, sugar, chocolate chips, butter, baking soda, sea salt",
+      ingredientsTags: ["en:wheat-flour", "en:sugar", "en:chocolate-chips", "en:baking-soda"],
+    });
+    const alternatives = getAlternatives(product);
+
+    expect(classifyProduct(product)).toEqual({ type: "cookies", confidence: "high" });
+    expect(alternatives[0]).toMatchObject({
+      category: "Cookies",
+      brand: "Simple Mills",
+    });
+    expect(alternatives.map((alternative) => alternative.category)).not.toContain("Soda");
+  });
 });
 
 function testProduct(overrides: Partial<Product>): Product {

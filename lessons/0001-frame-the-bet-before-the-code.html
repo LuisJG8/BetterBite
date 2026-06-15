@@ -249,7 +249,7 @@
     </ul>
 
     <h2>Retrieval Check</h2>
-    <div class="quiz" data-answer="User risk">
+    <div class="quiz" data-scenario="Scenario 1" data-answer="User risk">
       <h3>Scenario 1</h3>
       <p>You ask AI to make "healthier alternatives" and it maps Burger King fries to a kale salad. What risk did the plan fail to protect?</p>
       <div class="buttons">
@@ -260,7 +260,7 @@
       <div class="feedback" aria-live="polite">Choose one answer.</div>
     </div>
 
-    <div class="quiz" data-answer="Data risk">
+    <div class="quiz" data-scenario="Scenario 2" data-answer="Data risk">
       <h3>Scenario 2</h3>
       <p>The UI claims a swap is cleaner, but the product record has no ingredient list and no category tags. What risk is most exposed?</p>
       <div class="buttons">
@@ -298,19 +298,28 @@ Change split:</textarea>
 
   <script>
     const explanations = {
-      "User risk": "Correct. The recommendation may be healthy, but it fails the user's craving, format, and occasion.",
-      "Code risk": "Not this time. Code risk is about architecture, coupling, complexity, tests, and rollback.",
-      "Data risk": "Not for the fries-to-salad case. Data risk is about whether the available fields support the claim.",
+      "Scenario 1": {
+        "User risk": "Correct. The recommendation may be healthy, but it fails the user's craving, format, and occasion.",
+        "Code risk": "Not this time. Code risk is about architecture, coupling, complexity, tests, and rollback.",
+        "Data risk": "Not for the fries-to-salad case. Data risk is about whether the available fields support the claim.",
+      },
+      "Scenario 2": {
+        "User risk": "Not this time. User risk is about the craving, format, and occasion, which is not the primary issue when data is missing.",
+        "Code risk": "Not this time. Code risk is about architecture, coupling, complexity, tests, and rollback.",
+        "Data risk": "Correct. Without ingredient lists or category tags, we cannot back up our scoring or alternative claims.",
+      },
     };
 
     document.querySelectorAll(".quiz").forEach((quiz) => {
       const answer = quiz.dataset.answer;
       const feedback = quiz.querySelector(".feedback");
+      const scenario = quiz.dataset.scenario;
+      const scenarioExplanations = explanations[scenario];
       quiz.querySelectorAll("button").forEach((button) => {
         button.addEventListener("click", () => {
           const choice = button.dataset.choice;
           const correct = choice === answer;
-          feedback.textContent = correct ? explanations[choice] : `${explanations[choice]} Try again.`;
+          feedback.textContent = correct ? scenarioExplanations[choice] : `${scenarioExplanations[choice]} Try again.`;
           feedback.classList.toggle("good", correct);
           feedback.classList.toggle("bad", !correct);
         });
@@ -326,9 +335,18 @@ Change split:</textarea>
     ];
 
     document.getElementById("check-frame").addEventListener("click", () => {
-      const value = document.getElementById("frame").value.toLowerCase();
-      const missing = checks.filter((check) => !check.terms.some((term) => value.includes(term.toLowerCase())));
+      const rawValue = document.getElementById("frame").value.toLowerCase();
       const result = document.getElementById("frame-result");
+      const contentOnly = checks.reduce(
+        (value, check) => value.replace(new RegExp(`${check.label.toLowerCase()}:`, "g"), ""),
+        rawValue,
+      );
+      if (!contentOnly.trim()) {
+        result.textContent = "Please fill out the template before checking.";
+        return;
+      }
+
+      const missing = checks.filter((check) => !check.terms.some((term) => contentOnly.includes(term.toLowerCase())));
       if (missing.length === 0) {
         result.textContent = "Good shape. Next improvement: make each line falsifiable, especially the riskiest assumption and QA evidence.";
         return;

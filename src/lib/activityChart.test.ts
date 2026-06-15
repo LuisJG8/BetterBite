@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLevel, buildActivityChart, buildCurrentActivityWeek } from "./activityChart";
+import { activityLevel, buildActivityChart, buildCurrentActivityWeek, formatActivityWeekRange } from "./activityChart";
 import type { ActivityDay } from "../types";
 
 describe("activity chart helpers", () => {
@@ -75,5 +75,39 @@ describe("activity chart helpers", () => {
     expect(week[0]?.count).toBe(1);
     expect(week[4]?.level).toBe(3);
     expect(week[6]?.isFuture).toBe(true);
+  });
+
+  it("resets the compact current week when a new Monday starts", () => {
+    const previousWeek: ActivityDay[] = [
+      { date: "2026-06-08", count: 1, events: { login: 1 } },
+      { date: "2026-06-09", count: 1, events: { login: 1 } },
+      { date: "2026-06-10", count: 1, events: { login: 1 } },
+      { date: "2026-06-11", count: 1, events: { login: 1 } },
+      { date: "2026-06-12", count: 1, events: { login: 1 } },
+      { date: "2026-06-13", count: 1, events: { login: 1 } },
+      { date: "2026-06-14", count: 1, events: { login: 1 } },
+    ];
+
+    const week = buildCurrentActivityWeek(previousWeek, new Date(2026, 5, 15));
+
+    expect(week.map((day) => day.date)).toEqual([
+      "2026-06-15",
+      "2026-06-16",
+      "2026-06-17",
+      "2026-06-18",
+      "2026-06-19",
+      "2026-06-20",
+      "2026-06-21",
+    ]);
+    expect(week.map((day) => day.count)).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    expect(week.map((day) => day.isFuture)).toEqual([false, true, true, true, true, true, true]);
+    expect(formatActivityWeekRange(week)).toBe("15/06/2026 - 21/06/2026");
+  });
+
+  it("formats the current week range as DD/MM/YYYY", () => {
+    const week = buildCurrentActivityWeek([], new Date(2026, 5, 11));
+
+    expect(formatActivityWeekRange(week)).toBe("08/06/2026 - 14/06/2026");
+    expect(formatActivityWeekRange([])).toBe("");
   });
 });

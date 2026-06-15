@@ -520,8 +520,6 @@ export function classifyProduct(product: Product): ProductClassification {
     product.brand,
     product.categoriesText,
     product.categories.join(" "),
-    product.ingredientsText,
-    product.ingredientsTags.join(" "),
   ]
     .filter(Boolean)
     .join(" ")
@@ -565,7 +563,7 @@ const PRODUCT_TYPE_RULES: ProductTypeRule[] = [
   {
     type: "chips",
     confidence: "medium",
-    patterns: [/\b(chip|chips|crisps)\b/],
+    patterns: [/\b(chips|crisps)\b/],
   },
   {
     type: "protein_bar",
