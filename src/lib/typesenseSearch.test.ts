@@ -90,6 +90,24 @@ describe("typesense food search helpers", () => {
     });
   });
 
+  it("allows common local food image extensions and underscores", () => {
+    for (const imageUrl of [
+      "/search-foods/crunchy_potato.jpg",
+      "/search-foods/crunchy_potato.jpeg",
+      "/search-foods/crunchy_potato.webp",
+      "/search-foods/crunchy_potato.avif",
+    ]) {
+      expect(
+        mapTypesenseFoodDocument({
+          id: "food-004",
+          name: "Classic Kettle Chips",
+          category: "Potato chips",
+          imageUrl,
+        }),
+      ).toMatchObject({ imageUrl });
+    }
+  });
+
   it("moves through empty, loading, success, no result, and error states", () => {
     const withQuery = reduceFoodSearchState(INITIAL_FOOD_SEARCH_STATE, { type: "queryChanged", query: "chips" });
     expect(withQuery).toMatchObject({ query: "chips", status: "idle" });
@@ -115,6 +133,34 @@ describe("typesense food search helpers", () => {
 
     const reset = reduceFoodSearchState(error, { type: "queryChanged", query: " " });
     expect(reset).toMatchObject({ query: " ", status: "idle", results: [], selectedResult: null });
+  });
+
+  it("clears pending and completed search state when the query changes away from the submitted query", () => {
+    const withQuery = reduceFoodSearchState(INITIAL_FOOD_SEARCH_STATE, { type: "queryChanged", query: "chips" });
+    const loading = reduceFoodSearchState(withQuery, { type: "searchStarted", query: "chips" });
+
+    expect(reduceFoodSearchState(loading, { type: "queryChanged", query: "cookies" })).toMatchObject({
+      query: "cookies",
+      submittedQuery: "",
+      status: "idle",
+      results: [],
+      selectedResult: null,
+    });
+
+    const success = reduceFoodSearchState(loading, { type: "searchSucceeded", query: "chips", results: [result] });
+    expect(reduceFoodSearchState(success, { type: "queryChanged", query: "chips " })).toMatchObject({
+      query: "chips ",
+      submittedQuery: "chips",
+      status: "success",
+      results: [result],
+    });
+    expect(reduceFoodSearchState(success, { type: "queryChanged", query: "soda" })).toMatchObject({
+      query: "soda",
+      submittedQuery: "",
+      status: "idle",
+      results: [],
+      selectedResult: null,
+    });
   });
 
   it("turns common Typesense failures into actionable messages", () => {

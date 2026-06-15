@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronLeft, Loader2, Search } from "lucide-react";
-import { FormEvent, useReducer } from "react";
+import { FormEvent, useReducer, useRef } from "react";
 import {
   INITIAL_FOOD_SEARCH_STATE,
   friendlyTypesenseError,
@@ -10,9 +10,21 @@ import {
 
 export function SearchScreen() {
   const [state, dispatch] = useReducer(reduceFoodSearchState, INITIAL_FOOD_SEARCH_STATE);
+  const searchRequestIdRef = useRef(0);
+  const latestQueryRef = useRef(state.query);
+
+  function handleQueryChange(query: string): void {
+    latestQueryRef.current = query;
+    searchRequestIdRef.current += 1;
+    dispatch({ type: "queryChanged", query });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (state.status === "loading") {
+      return;
+    }
 
     const query = state.query.trim();
     if (!query) {
@@ -20,12 +32,21 @@ export function SearchScreen() {
       return;
     }
 
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+    latestQueryRef.current = state.query;
     dispatch({ type: "searchStarted", query });
 
     try {
       const results = await searchFoods(query);
+      if (searchRequestIdRef.current !== requestId || latestQueryRef.current.trim() !== query) {
+        return;
+      }
       dispatch({ type: "searchSucceeded", query, results });
     } catch (error) {
+      if (searchRequestIdRef.current !== requestId || latestQueryRef.current.trim() !== query) {
+        return;
+      }
       dispatch({ type: "searchFailed", query, error: friendlyTypesenseError(error) });
     }
   }
@@ -49,7 +70,7 @@ export function SearchScreen() {
             <Search className="pointer-events-none absolute left-4 text-[#566164]" size={20} strokeWidth={2.2} />
             <input
               value={state.query}
-              onChange={(event) => dispatch({ type: "queryChanged", query: event.target.value })}
+              onChange={(event) => handleQueryChange(event.target.value)}
               className="h-[47px] w-full rounded-[16px] border border-[#BAC9C9]/70 bg-white px-12 py-4 text-[16px] font-semibold leading-6 text-[#191C1D] shadow-[0_8px_24px_rgba(0,105,107,0.08)] outline-none transition placeholder:text-[#7A8587] focus:border-[#00A8AB] focus:ring-4 focus:ring-[#00C5C8]/20"
               placeholder="Search chips, soda, cookies..."
               type="search"
@@ -130,13 +151,12 @@ function SearchEmptyState({ title, body }: { title: string; body: string }) {
 }
 
 function FoodResultCard({ result, onSelect }: { result: FoodSearchResult; onSelect: () => void }) {
-  const tags = [...result.cravingTags.slice(0, 2), ...result.healthTags.slice(0, 1)];
+  const tags = Array.from(new Set([...result.cravingTags.slice(0, 2), ...result.healthTags.slice(0, 1)]));
 
   return (
     <button
       type="button"
       className="flex w-full items-center gap-3 rounded-xl border border-[#DDE8E9] bg-white/80 p-3 text-left shadow-[0_4px_20px_rgba(0,105,107,0.08)] backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-      onMouseDown={(event) => event.preventDefault()}
       onClick={onSelect}
     >
       <FoodImage result={result} size="list" />
@@ -192,7 +212,7 @@ function FoodDetailScreen({ result, onBack }: { result: FoodSearchResult; onBack
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {[...result.cravingTags, ...result.formatTags, ...result.healthTags].slice(0, 9).map((tag, index) => (
+        {Array.from(new Set([...result.cravingTags, ...result.formatTags, ...result.healthTags])).slice(0, 9).map((tag, index) => (
           <span key={`${tag}-${index}`} className="rounded-full bg-[#EEF7F8] px-3 py-1 text-xs font-bold text-[#3B4949]">
             {tag}
           </span>

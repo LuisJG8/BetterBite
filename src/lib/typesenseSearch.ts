@@ -94,6 +94,9 @@ export function reduceFoodSearchState(state: FoodSearchState, action: FoodSearch
       if (!query.trim()) {
         return { ...INITIAL_FOOD_SEARCH_STATE, query };
       }
+      if (state.submittedQuery && query.trim() !== state.submittedQuery) {
+        return { ...INITIAL_FOOD_SEARCH_STATE, query };
+      }
       return { ...state, query, error: null };
     }
     case "searchStarted":
@@ -245,7 +248,7 @@ function cleanImageUrl(value: unknown): string | undefined {
     return undefined;
   }
 
-  if (/^\/search-foods\/[a-z0-9-]+\.png$/i.test(text)) {
+  if (/^\/search-foods\/[a-z0-9-_]+\.(png|jpg|jpeg|webp|avif)$/i.test(text)) {
     return text;
   }
 

@@ -20,6 +20,7 @@ import {
   Loader2,
   LogOut,
   Pencil,
+  RefreshCw,
   Search,
   Shield,
   Sparkles,
@@ -85,7 +86,7 @@ type SavedSwapHistoryGroup = {
   swaps: SavedSwapHistoryItem[];
 };
 const LOGIN_ACTIVITY_SESSION_KEY = "betterbite.loginActivityRecorded.v1";
-let didRecordLoginThisRuntime = false;
+let didRecordLoginThisRuntimeDate: string | null = null;
 
 const FALLBACK_SWAP: AlternativeProduct = {
   id: "fallback-boulder-canyon-chips",
@@ -203,7 +204,7 @@ function toggleMultiSelect<T extends string>(currentValues: T[], value: T, exclu
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("scan");
+  const [activeTab, setActiveTab] = useState<Tab>("home");
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>(() => loadOnboardingProfile());
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(() => (loadOnboardingProfile().completed ? "app" : "welcome"));
   const [barcode, setBarcode] = useState(TEST_BARCODE);
@@ -516,8 +517,7 @@ export default function App() {
         setActivityDays(loginActivity);
       }
       setOnboardingStep("app");
-      setActiveTab("scan");
-      startScanSession();
+      setActiveTab("home");
       window.scrollTo({ top: 0, left: 0 });
       return;
     }
@@ -560,6 +560,19 @@ export default function App() {
 
   function updateOnboardingProfile(updater: (current: OnboardingProfile) => OnboardingProfile) {
     setOnboardingProfile((current) => saveOnboardingProfile({ ...updater(current), completed: false }));
+  }
+
+  function handleRestartOnboardingTest() {
+    const nextProfile = createEmptyOnboardingProfile();
+    setOnboardingProfile(saveOnboardingProfile(nextProfile));
+    setOnboardingStep("welcome");
+    didRecordLoginThisRuntimeDate = null;
+    try {
+      sessionStorage.removeItem(LOGIN_ACTIVITY_SESSION_KEY);
+    } catch {
+      // Session storage is only used to avoid duplicate login activity in a single browser session.
+    }
+    window.location.reload();
   }
 
   function handleAlternativeAccept(product: Product, alternative: AlternativeProduct) {
@@ -655,6 +668,7 @@ export default function App() {
                   streak={activityChart.currentStreak}
                   onBarcodeChange={setBarcode}
                   onSubmit={handleSubmit}
+                  onRestartOnboardingTest={handleRestartOnboardingTest}
                 />
 
                 {activeTab === "scan" && product && qualityScore && (
@@ -812,6 +826,7 @@ function DashboardScanScreen({
   streak,
   onBarcodeChange,
   onSubmit,
+  onRestartOnboardingTest,
 }: {
   mode: "home" | "scan";
   barcode: string;
@@ -822,6 +837,7 @@ function DashboardScanScreen({
   streak: number;
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onRestartOnboardingTest: () => void;
 }) {
   const isScanMode = mode === "scan";
   const recommendations = [
@@ -881,6 +897,19 @@ function DashboardScanScreen({
         <section className="grid grid-cols-2 gap-3 px-5 pt-10">
           <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="blue" />
           <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
+        </section>
+      )}
+
+      {!isScanMode && (
+        <section className="px-5 pt-7">
+          <button
+            type="button"
+            className="mx-auto flex min-h-9 items-center justify-center gap-2 rounded-full border border-[#B7D7D2] bg-white/80 px-4 text-[12px] font-black uppercase tracking-[0.12em] text-[#00696B] shadow-[0_6px_16px_rgba(0,105,107,0.08)] transition hover:bg-[#DDF7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+            onClick={onRestartOnboardingTest}
+          >
+            <RefreshCw size={14} strokeWidth={2.6} />
+            Test onboarding
+          </button>
         </section>
       )}
     </div>
@@ -2411,6 +2440,8 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
   const prefersReducedMotion = useReducedMotion();
   const compactDayLabels = ["M", "T", "W", "T", "F", "S", "S"];
   const currentWeekRange = formatActivityWeekRange(chart.currentWeek);
+  const currentWeekActivityDays = chart.currentWeek.filter((day) => day.count > 0 && !day.isFuture).length;
+  const currentWeekStreakLabel = `${currentWeekActivityDays} day${currentWeekActivityDays === 1 ? "" : "s"} streak`;
   const activityHistoryTransition = prefersReducedMotion
     ? { duration: 0 }
     : {
@@ -2427,7 +2458,7 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
             <CalendarDays size={21} />
           </div>
           <div>
-            <p className="text-base font-black text-ink">{chart.currentStreak} day streak</p>
+            <p className="text-base font-black text-ink">{currentWeekStreakLabel}</p>
           </div>
         </div>
         <button
@@ -2800,21 +2831,21 @@ function flagColor(severity: IngredientFlag["severity"]): string {
 }
 
 function activityCellColor(level: number, isFuture: boolean): string {
-  if (isFuture) return "bg-cream";
-  if (level <= 0) return "bg-berry";
-  if (level === 1) return "bg-[#174f18]";
-  if (level === 2) return "bg-leaf";
-  if (level === 3) return "bg-[#4d873f]";
-  return "bg-sky";
+  if (isFuture) return "bg-[#F7FAFB]";
+  if (level <= 0) return "bg-[#EAF4EE]";
+  if (level === 1) return "bg-[#0D8F4F]";
+  if (level === 2) return "bg-[#31A863]";
+  if (level === 3) return "bg-[#5DBB73]";
+  return "bg-[#86D695]";
 }
 
 function compactActivityColor(level: number, isFuture: boolean): string {
   if (isFuture) return "bg-cream/20";
-  if (level <= 0) return "bg-[#df2f46]";
-  if (level === 1) return "bg-[#174f18]";
-  if (level === 2) return "bg-leaf";
-  if (level === 3) return "bg-[#4d873f]";
-  return "bg-sky";
+  if (level <= 0) return "bg-[#EAF4EE]";
+  if (level === 1) return "bg-[#0D8F4F]";
+  if (level === 2) return "bg-[#31A863]";
+  if (level === 3) return "bg-[#5DBB73]";
+  return "bg-[#86D695]";
 }
 
 function isTauriRuntime(): boolean {
@@ -2879,22 +2910,31 @@ function getBrowserCameraBlockedMessage(): string {
   return `Camera permission is blocked for this site. Allow camera access${hostCopy} in your browser settings, then tap Try camera again.`;
 }
 
-function recordLoginActivityOnce(): ActivityDay[] | null {
-  if (didRecordLoginThisRuntime) {
+function recordLoginActivityOnce(date = new Date()): ActivityDay[] | null {
+  const dateKey = toLocalDateKey(date);
+
+  if (didRecordLoginThisRuntimeDate === dateKey) {
     return null;
   }
 
   try {
-    if (sessionStorage.getItem(LOGIN_ACTIVITY_SESSION_KEY)) {
-      didRecordLoginThisRuntime = true;
+    if (sessionStorage.getItem(LOGIN_ACTIVITY_SESSION_KEY) === dateKey) {
+      didRecordLoginThisRuntimeDate = dateKey;
       return null;
     }
 
-    sessionStorage.setItem(LOGIN_ACTIVITY_SESSION_KEY, "true");
+    sessionStorage.setItem(LOGIN_ACTIVITY_SESSION_KEY, dateKey);
   } catch {
     // Session storage is only a guard against duplicate launch points.
   }
 
-  didRecordLoginThisRuntime = true;
-  return recordActivity("login");
+  didRecordLoginThisRuntimeDate = dateKey;
+  return recordActivity("login", date);
+}
+
+function toLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

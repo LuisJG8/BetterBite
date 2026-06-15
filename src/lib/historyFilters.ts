@@ -23,7 +23,8 @@ function isWithinCurrentWeek(value: string, now: Date): boolean {
   }
 
   const start = new Date(now);
-  start.setDate(now.getDate() - now.getDay());
+  const day = now.getDay();
+  start.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
   start.setHours(0, 0, 0, 0);
 
   return date >= start;

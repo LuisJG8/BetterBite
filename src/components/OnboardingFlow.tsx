@@ -527,12 +527,12 @@ function PrimaryButton({
   disabled?: boolean;
   type?: "button" | "submit";
 }) {
-  const isNextButton = label === "Next";
+  const hasTrailingArrow = label === "Next";
 
   return (
     <button
       type={type}
-      className={`flex h-[56px] ${isNextButton ? "mx-auto w-1/2" : "w-full"} items-center justify-center gap-2 rounded-[14px] text-[17px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40 ${
+      className={`mb-2.5 flex h-[56px] w-full items-center justify-center gap-2 rounded-[14px] text-[17px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40 ${
         disabled
           ? "bg-[#D6E0E2] text-[#9BA5A7]"
           : "bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_26px_rgba(0,128,128,0.22)] active:translate-y-px"
@@ -541,7 +541,7 @@ function PrimaryButton({
       onClick={onClick}
     >
       {label}
-      {isNextButton && <ArrowRight size={20} strokeWidth={2.8} />}
+      {hasTrailingArrow && <ArrowRight size={20} strokeWidth={2.8} />}
     </button>
   );
 }

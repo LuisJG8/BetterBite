@@ -26,6 +26,32 @@ describe("history filters", () => {
     expect(filterHistoryItems(history, "this-week", now).map((item) => item.barcode)).toEqual(["11111111"]);
   });
 
+  it("treats Monday as the start of this-week, including when today is Sunday", () => {
+    const sundayNow = new Date("2026-06-14T12:00:00.000Z");
+    const weekHistory: ScanHistoryItem[] = [
+      {
+        barcode: "33333333",
+        productName: "Monday snack",
+        score: 6,
+        scannedAt: "2026-06-08T12:00:00.000Z",
+      },
+      {
+        barcode: "44444444",
+        productName: "Previous Sunday snack",
+        score: 6,
+        scannedAt: "2026-06-07T12:00:00.000Z",
+      },
+      {
+        barcode: "55555555",
+        productName: "Current Sunday snack",
+        score: 6,
+        scannedAt: "2026-06-14T12:00:00.000Z",
+      },
+    ];
+
+    expect(filterHistoryItems(weekHistory, "this-week", sundayNow).map((item) => item.barcode)).toEqual(["33333333", "55555555"]);
+  });
+
   it("returns no normal scan rows for the swaps filter", () => {
     expect(filterHistoryItems(history, "swaps", new Date("2026-06-12T12:00:00.000Z"))).toEqual([]);
   });
