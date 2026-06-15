@@ -854,7 +854,7 @@ function DashboardScanScreen({
       art: "bar" as const,
     },
   ];
-  const streakLabel = `${Math.max(streak, 5)} Days`;
+  const streakLabel = streak === 1 ? "1 Day" : `${streak} Days`;
   const introTitle = isScanMode ? "Scan a barcode" : "Hello, Alex!";
   const introCopy = isScanMode
     ? "Point your package barcode at the camera to see cleaner swaps."
@@ -1253,7 +1253,7 @@ function DashboardStatCard({ icon, label, value, tone }: { icon: ReactNode; labe
 function formatLastScanSummary(history: ScanHistoryItem[]): string {
   const latest = history[0];
   if (!latest) {
-    return "2 hours ago";
+    return "No scans yet";
   }
 
   const timestamp = new Date(latest.scannedAt).getTime();

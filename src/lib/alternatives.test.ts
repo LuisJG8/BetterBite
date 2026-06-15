@@ -88,6 +88,23 @@ describe("structured alternative taxonomy", () => {
     });
     expect(alternatives.map((alternative) => alternative.category)).not.toContain("Jerky");
   });
+
+  it("does not let incidental ingredient words override the product category", () => {
+    const product = testProduct({
+      name: "Chocolate Chip Cookies",
+      categoriesText: "Cookies, Sweet snacks",
+      ingredientsText: "Wheat flour, sugar, chocolate chips, butter, baking soda, sea salt",
+      ingredientsTags: ["en:wheat-flour", "en:sugar", "en:chocolate-chips", "en:baking-soda"],
+    });
+    const alternatives = getAlternatives(product);
+
+    expect(classifyProduct(product)).toEqual({ type: "cookies", confidence: "high" });
+    expect(alternatives[0]).toMatchObject({
+      category: "Cookies",
+      brand: "Simple Mills",
+    });
+    expect(alternatives.map((alternative) => alternative.category)).not.toContain("Soda");
+  });
 });
 
 function testProduct(overrides: Partial<Product>): Product {
