@@ -348,7 +348,7 @@ function toOnboardingProfile(value: unknown): OnboardingProfile {
     dietPreferences,
     foodsToAvoid,
     swapStrictness,
-    completed: Boolean(value.completed && mainGoals.length && dietPreferences.length && foodsToAvoid.length && swapStrictness.length),
+    completed: Boolean(value.completed && mainGoals.length && dietPreferences.length && foodsToAvoid.length),
   };
 }
 

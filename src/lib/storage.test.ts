@@ -141,7 +141,7 @@ describe("storage helpers", () => {
     expect(loadSettings()).toEqual({ strictSeedOilPenalty: false });
   });
 
-  it("persists completed onboarding only when every question group has valid values", () => {
+  it("persists completed onboarding when required question groups have valid values", () => {
     expect(loadOnboardingProfile()).toEqual({
       mainGoals: [],
       dietPreferences: [],
@@ -154,14 +154,14 @@ describe("storage helpers", () => {
       mainGoals: ["eat-healthier", "energy-focus"],
       dietPreferences: ["vegetarian", "gluten-free"],
       foodsToAvoid: ["seed-oils", "added-sugars"],
-      swapStrictness: ["closest-match", "cleaner-ingredients"],
+      swapStrictness: [],
       completed: true,
     });
     expect(loadOnboardingProfile()).toEqual({
       mainGoals: ["eat-healthier", "energy-focus"],
       dietPreferences: ["vegetarian", "gluten-free"],
       foodsToAvoid: ["seed-oils", "added-sugars"],
-      swapStrictness: ["closest-match", "cleaner-ingredients"],
+      swapStrictness: [],
       completed: true,
     });
 

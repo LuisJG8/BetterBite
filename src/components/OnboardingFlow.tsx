@@ -21,7 +21,6 @@ import {
   Scale,
   ShieldCheck,
   Sparkles,
-  Target,
   WheatOff,
   Zap,
 } from "lucide-react";
@@ -30,9 +29,9 @@ import boulderCanyonChips from "../assets/boulder-canyon-chips.avif";
 import burgerKingFries from "../assets/burger-king-fries.jpg";
 import appLogo from "../assets/healthier-food-logo-option-07.png";
 import welcomeFoodHero from "../assets/onboarding-food-hero.png";
-import type { DietPreference, FoodAvoidance, MainGoal, OnboardingProfile, SwapStrictness } from "../types";
+import type { DietPreference, FoodAvoidance, MainGoal, OnboardingProfile } from "../types";
 
-export type OnboardingStep = "welcome" | "benefits" | "scan-swap" | "main-goal" | "diet" | "avoid" | "strictness" | "account" | "app";
+export type OnboardingStep = "welcome" | "benefits" | "scan-swap" | "main-goal" | "diet" | "avoid" | "account" | "app";
 
 type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
 
@@ -44,7 +43,6 @@ interface OnboardingFlowProps {
   onMainGoalToggle: (goal: MainGoal) => void;
   onDietPreferenceToggle: (preference: DietPreference) => void;
   onFoodAvoidanceToggle: (avoidance: FoodAvoidance) => void;
-  onSwapStrictnessToggle: (strictness: SwapStrictness) => void;
 }
 
 interface ChoiceOption<T extends string> {
@@ -94,51 +92,6 @@ const FOOD_AVOIDANCE_OPTIONS: Array<ChoiceOption<FoodAvoidance>> = [
   { value: "gmos", label: "GMOs", icon: <Leaf size={19} />, tint: "bg-[#CFF5D5] text-[#256D1B]" },
 ];
 
-const SWAP_STRICTNESS_OPTIONS: Array<ChoiceOption<SwapStrictness>> = [
-  {
-    value: "closest-match",
-    label: "Closest match",
-    description: "Preserve the same craving first.",
-    icon: <Target size={20} />,
-    tint: "bg-[#DDF7EF] text-[#00696B]",
-  },
-  {
-    value: "cleaner-ingredients",
-    label: "Cleaner ingredients",
-    description: "Prioritize simpler labels.",
-    icon: <Leaf size={20} />,
-    tint: "bg-[#CFF5D5] text-[#256D1B]",
-  },
-  {
-    value: "lower-sugar-sodium",
-    label: "Lower sugar or sodium",
-    description: "Prefer lighter everyday options.",
-    icon: <HeartPulse size={20} />,
-    tint: "bg-[#E3F1F6] text-[#00637A]",
-  },
-  {
-    value: "avoid-seed-oils",
-    label: "Avoid seed oils",
-    description: "Look for better oil choices.",
-    icon: <Droplets size={20} />,
-    tint: "bg-[#D7F1F6] text-[#00637A]",
-  },
-  {
-    value: "same-convenience",
-    label: "Same convenience",
-    description: "Keep swaps easy to choose.",
-    icon: <ArrowRight size={20} />,
-    tint: "bg-[#B6F4E4] text-[#00696B]",
-  },
-  {
-    value: "strict-clean-label",
-    label: "Strict clean-label",
-    description: "Only the cleanest close alternatives.",
-    icon: <ShieldCheck size={20} />,
-    tint: "bg-[#F0F7E5] text-[#256D1B]",
-  },
-];
-
 export function OnboardingFlow({
   step,
   profile,
@@ -147,7 +100,6 @@ export function OnboardingFlow({
   onMainGoalToggle,
   onDietPreferenceToggle,
   onFoodAvoidanceToggle,
-  onSwapStrictnessToggle,
 }: OnboardingFlowProps) {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0 });
@@ -190,17 +142,6 @@ export function OnboardingFlow({
             onBack={onBack}
             onContinue={onContinue}
             onToggle={onFoodAvoidanceToggle}
-          />
-        )}
-        {step === "strictness" && (
-          <QuestionScreen
-            title="How strict should we be with swaps?"
-            subtitle="Choose your preference."
-            options={SWAP_STRICTNESS_OPTIONS}
-            values={profile.swapStrictness}
-            onBack={onBack}
-            onContinue={onContinue}
-            onToggle={onSwapStrictnessToggle}
           />
         )}
         {step === "account" && <AccountScreen onBack={onBack} onComplete={onContinue} />}

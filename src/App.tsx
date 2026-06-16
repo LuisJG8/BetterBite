@@ -4,7 +4,6 @@ import {
   Apple,
   Barcode,
   Bell,
-  CalendarDays,
   Camera,
   CheckCircle2,
   ChevronLeft,
@@ -29,7 +28,9 @@ import {
 import { Fragment, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
+import menuPhoto from "./assets/menu-photo.jpg";
 import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
+import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
 import { SearchScreen } from "./components/SearchScreen";
 import { getAlternatives } from "./lib/alternatives";
@@ -67,7 +68,6 @@ import type {
   QualityScore,
   SavedSwapHistoryItem,
   ScanHistoryItem,
-  SwapStrictness,
 } from "./types";
 
 type Tab = "home" | "search" | "scan" | "history" | "profile";
@@ -153,7 +153,43 @@ const ESTIMATED_SWAP_PRICES: Record<string, string> = {
 };
 
 const TEST_BARCODE = "5449000000996";
-const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "scan-swap", "main-goal", "diet", "avoid", "strictness", "account"];
+const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "scan-swap", "main-goal", "diet", "avoid", "account"];
+const RECOMMENDED_FOODS = [
+  {
+    name: "Siete Sea Salt Chips",
+    detail: "Tortilla chip craving",
+    score: "9.1",
+    imageSrc:
+      "https://i5.walmartimages.com/seo/Siete-Sea-Salt-Grain-Free-Tortilla-Chips-5-oz-bags-6-Pack_cc895596-1502-466a-9503-e8735e63c75f.78b38d2618f499df8b32bda2ef045c22.jpeg?odnBg=FFFFFF&odnHeight=573&odnWidth=573",
+  },
+  {
+    name: "Siete Shortbread Cookies",
+    detail: "Cookie craving",
+    score: "8.8",
+    imageSrc:
+      "https://i5.walmartimages.com/seo/Siete-Family-Foods-Grain-Free-Mexican-Shortbread-Cookies-4-5-oz_c89275e8-ea6c-43c6-9f1d-10e4d9f0f9f3.baf3460c87b4c8b898b9386834c1741f.jpeg?odnBg=FFFFFF&odnHeight=573&odnWidth=573",
+  },
+  {
+    name: "OLIPOP Vintage Cola",
+    detail: "Soda craving",
+    score: "8.7",
+    imageSrc:
+      "https://drinkolipop.com/cdn/shop/articles/OLIPOP_SS_12oz_VC_CANGLASS_1x1_b5ab2bbb-0df2-4618-87c7-0c98d82eaec3_300x.jpg?v=1780063814",
+  },
+  {
+    name: "Hu Dark Chocolate Gems",
+    detail: "Chocolate craving",
+    score: "8.9",
+    imageSrc: "https://hukitchen.com/cdn/shop/files/HU_HK.com_FOP_800x.png?v=1766423209",
+  },
+  {
+    name: "LesserEvil Pink Salt Popcorn",
+    detail: "Popcorn craving",
+    score: "8.6",
+    imageSrc:
+      "https://www.lesserevil.com/cdn/shop/files/LE_OP_4p6oz_HP_Front_3eee5efe-219f-483b-8c9c-8a90e8062d4d.jpg?v=1746038645&width=2200",
+  },
+];
 
 function createEmptyOnboardingProfile(): OnboardingProfile {
   return {
@@ -177,8 +213,6 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
       return profile.dietPreferences.length > 0;
     case "avoid":
       return profile.foodsToAvoid.length > 0;
-    case "strictness":
-      return profile.swapStrictness.length > 0;
     case "account":
       return isOnboardingProfileReady(profile);
     case "app":
@@ -187,7 +221,7 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
 }
 
 function isOnboardingProfileReady(profile: OnboardingProfile): boolean {
-  return Boolean(profile.mainGoals.length && profile.dietPreferences.length && profile.foodsToAvoid.length && profile.swapStrictness.length);
+  return Boolean(profile.mainGoals.length && profile.dietPreferences.length && profile.foodsToAvoid.length);
 }
 
 function toggleMultiSelect<T extends string>(currentValues: T[], value: T, exclusiveValue?: T): T[] {
@@ -362,10 +396,10 @@ export default function App() {
     void handleLookup();
   }
 
-  function startScanSession() {
+  function startScanSession(mode: ScanCameraMode = "barcode") {
     setShowScanEntry(true);
     setError(null);
-    setScanCameraMode("barcode");
+    setScanCameraMode(mode);
 
     if (canUseLaptopCameraPreview()) {
       void startBrowserCameraScanner();
@@ -383,7 +417,7 @@ export default function App() {
   }
 
   function handleScanFoodPress() {
-    startScanSession();
+    startScanSession("food");
   }
 
   function handleScanTabPress() {
@@ -551,13 +585,6 @@ export default function App() {
     }));
   }
 
-  function handleSwapStrictnessToggle(strictness: SwapStrictness) {
-    updateOnboardingProfile((current) => ({
-      ...current,
-      swapStrictness: toggleMultiSelect(current.swapStrictness, strictness),
-    }));
-  }
-
   function updateOnboardingProfile(updater: (current: OnboardingProfile) => OnboardingProfile) {
     setOnboardingProfile((current) => saveOnboardingProfile({ ...updater(current), completed: false }));
   }
@@ -639,7 +666,6 @@ export default function App() {
         onMainGoalToggle={handleMainGoalToggle}
         onDietPreferenceToggle={handleDietPreferenceToggle}
         onFoodAvoidanceToggle={handleFoodAvoidanceToggle}
-        onSwapStrictnessToggle={handleSwapStrictnessToggle}
       />
     );
   }
@@ -664,10 +690,9 @@ export default function App() {
                   error={error}
                   isLoading={isLoading}
                   showBarcodeEntry={showScanEntry}
-                  history={history}
-                  streak={activityChart.currentStreak}
                   onBarcodeChange={setBarcode}
                   onSubmit={handleSubmit}
+                  onScanMenuPress={handleScanFoodPress}
                   onRestartOnboardingTest={handleRestartOnboardingTest}
                 />
 
@@ -747,6 +772,7 @@ export default function App() {
               >
                 <ProfileScreen
                   chart={activityChart}
+                  history={history}
                   onLogOut={() => {
                     const nextProfile = createEmptyOnboardingProfile();
                     setOnboardingProfile(saveOnboardingProfile(nextProfile));
@@ -822,10 +848,9 @@ function DashboardScanScreen({
   error,
   isLoading,
   showBarcodeEntry,
-  history,
-  streak,
   onBarcodeChange,
   onSubmit,
+  onScanMenuPress,
   onRestartOnboardingTest,
 }: {
   mode: "home" | "scan";
@@ -833,28 +858,12 @@ function DashboardScanScreen({
   error: string | null;
   isLoading: boolean;
   showBarcodeEntry: boolean;
-  history: ScanHistoryItem[];
-  streak: number;
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onScanMenuPress: () => void;
   onRestartOnboardingTest: () => void;
 }) {
   const isScanMode = mode === "scan";
-  const recommendations = [
-    {
-      name: "Organic Green Juice",
-      detail: "High in antioxidants",
-      score: "9.5",
-      art: "juice" as const,
-    },
-    {
-      name: "Nutra Harvest Bar",
-      detail: "Fiber & Protein Rich",
-      score: "8.2",
-      art: "bar" as const,
-    },
-  ];
-  const streakLabel = streak === 1 ? "1 Day" : `${streak} Days`;
   const introTitle = isScanMode ? "Scan a barcode" : "Hello, Alex!";
   const introCopy = isScanMode
     ? "Point your package barcode at the camera to see cleaner swaps."
@@ -876,7 +885,7 @@ function DashboardScanScreen({
             </button>
           </div>
           <div className="flex gap-6 overflow-x-auto px-5 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {recommendations.map((item) => (
+            {RECOMMENDED_FOODS.map((item) => (
               <RecommendedFoodCard key={item.name} item={item} />
             ))}
           </div>
@@ -894,9 +903,9 @@ function DashboardScanScreen({
       )}
 
       {!isScanMode && (
-        <section className="grid grid-cols-2 gap-3 px-5 pt-10">
-          <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="blue" />
-          <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
+        <section className="space-y-3 px-5 pt-5">
+          <HomeActionButton imageSrc={menuPhoto} label="Scan Menu" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanMenuPress} />
+          <HomeActionButton imageSrc={recipeBuilderPhoto} label="Recipe Builder" icon={<FileText size={19} strokeWidth={2.5} />} />
         </section>
       )}
 
@@ -1135,7 +1144,7 @@ function RecommendedFoodCard({
     name: string;
     detail: string;
     score: string;
-    art: "juice" | "bar";
+    imageSrc: string;
   };
 }) {
   return (
@@ -1143,8 +1152,8 @@ function RecommendedFoodCard({
       type="button"
       className="w-64 shrink-0 overflow-hidden rounded-xl border border-[#DDE8E9] bg-white text-left shadow-[0_4px_18px_rgba(0,105,107,0.06)] transition active:scale-[0.98]"
     >
-      <div className="relative flex h-44 items-end justify-center overflow-hidden bg-[linear-gradient(145deg,#FFFFFF_0%,#F2F7F6_100%)]">
-        <ProductRecommendationArt kind={item.art} />
+      <div className="relative flex h-44 items-center justify-center overflow-hidden bg-white">
+        <img className="h-full w-full object-contain p-4 transition duration-300 hover:scale-[1.03]" src={item.imageSrc} alt="" />
         <span className="absolute right-3 top-3 rounded-full bg-[#AEEED8] px-3 py-1 text-[12px] font-bold leading-4 text-[#316D5B]">
           {item.score}
         </span>
@@ -1157,35 +1166,23 @@ function RecommendedFoodCard({
   );
 }
 
-function ProductRecommendationArt({ kind }: { kind: "juice" | "bar" }) {
-  if (kind === "bar") {
-    return (
-      <div className="relative mb-12 h-24 w-44">
-        <div className="absolute left-5 top-9 h-12 w-36 rotate-[-5deg] rounded-[6px] border border-[#D8E4DF] bg-white shadow-[0_18px_28px_rgba(0,0,0,0.10)]">
-          <div className="absolute left-3 top-2 h-4 w-16 rounded-sm bg-[#E4F4EE]" />
-          <div className="absolute bottom-2 left-3 h-3 w-20 rounded-sm bg-[#D7C9A8]" />
-          <div className="absolute right-3 top-2 h-7 w-8 rounded bg-[#8BAF83]" />
-        </div>
-        <div className="absolute bottom-0 left-12 h-5 w-28 rounded-full bg-[#C7D5D5]/35 blur-md" />
-      </div>
-    );
-  }
-
+function HomeActionButton({ imageSrc, label, icon, onClick }: { imageSrc: string; label: string; icon: ReactNode; onClick?: () => void }) {
   return (
-    <div className="relative h-40 w-56">
-      <div className="absolute bottom-5 left-7 h-8 w-8 rounded-full bg-[#6F9844]" />
-      <div className="absolute bottom-5 left-14 h-7 w-10 rounded-full bg-[#C7DB7E]" />
-      <div className="absolute bottom-4 right-9 h-7 w-7 rounded-full bg-[#8B6A3E]" />
-      <div className="absolute bottom-7 right-16 h-5 w-8 rounded-full bg-[#AFC76B]" />
-      <div className="absolute bottom-5 left-1 h-12 w-14 rounded-[50%] border-t-[10px] border-[#3F8C57]" />
-      <div className="absolute bottom-5 left-[86px] h-[116px] w-[48px] rounded-b-[12px] rounded-t-[15px] bg-gradient-to-b from-[#597F30] to-[#0F5534] shadow-[0_18px_24px_rgba(0,85,52,0.22)]">
-        <div className="mx-auto mt-7 h-8 w-7 rounded-sm bg-white/85 text-center text-[4px] font-black uppercase leading-3 text-[#3D6B33]">
-          Organic
-        </div>
-        <div className="absolute left-3 top-[-14px] h-4 w-6 rounded-t-[5px] bg-[#5C7E34]" />
-      </div>
-      <div className="absolute bottom-2 left-8 h-7 w-40 rounded-full bg-[#C7D5D5]/35 blur-md" />
-    </div>
+    <button
+      type="button"
+      className="group flex h-[96px] w-full items-center overflow-hidden rounded-[18px] border border-[#D6E5E4] bg-white text-left shadow-[0_10px_28px_rgba(0,105,107,0.09)] transition hover:border-[#86CFCB] hover:shadow-[0_14px_32px_rgba(0,105,107,0.13)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+      onClick={onClick}
+    >
+      <span className="h-full w-[122px] shrink-0 overflow-hidden bg-[#EAF4EE]">
+        <img className="h-full w-full object-cover transition duration-300 group-hover:scale-105" src={imageSrc} alt="" />
+      </span>
+      <span className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4">
+        <span className="text-[20px] font-black leading-6 text-[#191C1D]">{label}</span>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_20px_rgba(0,105,107,0.22)]">
+          {icon}
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -1414,7 +1411,8 @@ function SavedSwapHistoryRow({ item, onSelect }: { item: SavedSwapHistoryItem; o
   );
 }
 
-function ProfileScreen({ chart, onLogOut }: { chart: ActivityChart; onLogOut: () => void }) {
+function ProfileScreen({ chart, history, onLogOut }: { chart: ActivityChart; history: ScanHistoryItem[]; onLogOut: () => void }) {
+  const streakLabel = chart.currentStreak === 1 ? "1 Day" : `${chart.currentStreak} Days`;
   const metrics = [
     { label: "Age", value: "28", suffix: "Years", tone: "text-[#00696B]" },
     { label: "Weight", value: "75kg", suffix: "Current", tone: "text-[#00696B]" },
@@ -1451,6 +1449,11 @@ function ProfileScreen({ chart, onLogOut }: { chart: ActivityChart; onLogOut: ()
         >
           Edit Profile
         </button>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 px-5 pt-7">
+        <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="blue" />
+        <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
       </section>
 
       <section className="px-5 pt-8">
@@ -2440,8 +2443,6 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
   const prefersReducedMotion = useReducedMotion();
   const compactDayLabels = ["M", "T", "W", "T", "F", "S", "S"];
   const currentWeekRange = formatActivityWeekRange(chart.currentWeek);
-  const currentWeekActivityDays = chart.currentWeek.filter((day) => day.count > 0 && !day.isFuture).length;
-  const currentWeekStreakLabel = `${currentWeekActivityDays} day${currentWeekActivityDays === 1 ? "" : "s"} streak`;
   const activityHistoryTransition = prefersReducedMotion
     ? { duration: 0 }
     : {
@@ -2452,15 +2453,8 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
 
   return (
     <div className="bento-card overflow-hidden p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-sky text-leaf">
-            <CalendarDays size={21} />
-          </div>
-          <div>
-            <p className="text-base font-black text-ink">{currentWeekStreakLabel}</p>
-          </div>
-        </div>
+      <div className="flex items-center justify-between gap-4">
+        {currentWeekRange && <p className="whitespace-nowrap text-[11px] font-black text-leaf">Current week: {currentWeekRange}</p>}
         <button
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink"
           onClick={() => setIsExpanded((value) => !value)}
@@ -2470,8 +2464,6 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
           <ChevronRight className={`transition-transform duration-300 ease-out ${isExpanded ? "rotate-90" : ""}`} size={22} />
         </button>
       </div>
-
-      {currentWeekRange && <p className="mt-3 whitespace-nowrap text-[11px] font-black text-leaf">Current week: {currentWeekRange}</p>}
 
       <div className="mt-4">
         <div className="grid grid-cols-7 gap-2 rounded-full bg-berry p-1">
