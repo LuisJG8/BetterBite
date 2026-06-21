@@ -29,7 +29,7 @@ interface OnboardingFlowProps {
   step: VisibleOnboardingStep;
   profile: OnboardingProfile;
   onBack: () => void;
-  onContinue: () => void;
+  onContinue: (accountEmail?: string) => void;
   onMainGoalToggle: (goal: MainGoal) => void;
   onDietPreferenceToggle: (preference: DietPreference) => void;
   onFoodAvoidanceToggle: (avoidance: FoodAvoidance) => void;
@@ -268,12 +268,13 @@ function QuestionScreen<T extends string>({
   );
 }
 
-function AccountScreen({ onBack, onComplete }: { onBack: () => void; onComplete: () => void }) {
+function AccountScreen({ onBack, onComplete }: { onBack: () => void; onComplete: (accountEmail?: string) => void }) {
+  const [email, setEmail] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onComplete();
+    onComplete(email);
   }
 
   return (
@@ -296,6 +297,8 @@ function AccountScreen({ onBack, onComplete }: { onBack: () => void; onComplete:
               name="email"
               placeholder="Email address"
               autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               required
             />
           </span>
@@ -336,7 +339,7 @@ function AccountScreen({ onBack, onComplete }: { onBack: () => void; onComplete:
       <button
         type="button"
         className="flex h-[54px] w-full items-center justify-center gap-3 rounded-[14px] border border-[#CDDCDD] bg-white text-[15px] font-extrabold text-[#111517] transition hover:border-[#00C5C8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
-        onClick={onComplete}
+        onClick={() => onComplete()}
       >
         <span className="text-[22px] font-black text-[#4285F4]">G</span>
         Continue with Google
@@ -345,7 +348,7 @@ function AccountScreen({ onBack, onComplete }: { onBack: () => void; onComplete:
       <button
         type="button"
         className="mt-5 flex h-10 w-full items-center justify-center rounded-full text-[14px] font-black text-[#00696B] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
-        onClick={onComplete}
+        onClick={() => onComplete()}
       >
         Continue to app
       </button>

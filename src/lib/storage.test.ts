@@ -143,8 +143,8 @@ describe("storage helpers", () => {
 
   it("persists completed onboarding when required question groups have valid values", () => {
     expect(loadOnboardingProfile()).toEqual({
-      displayName: "Alex Johnson",
-      email: "alex.j@example.com",
+      displayName: "BetterBite User",
+      email: "",
       mainGoals: [],
       dietPreferences: [],
       foodsToAvoid: [],
@@ -184,8 +184,8 @@ describe("storage helpers", () => {
       }),
     );
     expect(loadOnboardingProfile()).toEqual({
-      displayName: "Alex Johnson",
-      email: "alex.j@example.com",
+      displayName: "BetterBite User",
+      email: "",
       mainGoals: ["manage-weight"],
       dietPreferences: ["vegetarian"],
       foodsToAvoid: ["gmos"],
@@ -207,8 +207,8 @@ describe("storage helpers", () => {
     );
 
     expect(loadOnboardingProfile()).toEqual({
-      displayName: "Alex Johnson",
-      email: "alex.j@example.com",
+      displayName: "BetterBite User",
+      email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["vegan"],
       foodsToAvoid: [],
@@ -220,7 +220,7 @@ describe("storage helpers", () => {
   it("keeps exclusive onboarding options mutually exclusive", () => {
     saveOnboardingProfile({
       displayName: "Alex Johnson",
-      email: "alex.j@example.com",
+      email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["no-preference", "vegan", "gluten-free"],
       foodsToAvoid: ["none", "seed-oils", "added-sugars"],
@@ -230,7 +230,7 @@ describe("storage helpers", () => {
 
     expect(loadOnboardingProfile()).toEqual({
       displayName: "Alex Johnson",
-      email: "alex.j@example.com",
+      email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["no-preference"],
       foodsToAvoid: ["none"],
@@ -306,7 +306,7 @@ describe("storage helpers", () => {
     expect(() =>
       saveOnboardingProfile({
         displayName: "Alex Johnson",
-        email: "alex.j@example.com",
+        email: "",
         mainGoals: ["eat-healthier"],
         dietPreferences: ["vegan"],
         foodsToAvoid: ["none"],

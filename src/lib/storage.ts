@@ -51,8 +51,8 @@ const SWAP_STRICTNESS: SwapStrictness[] = [
   "same-convenience",
   "strict-clean-label",
 ];
-const DEFAULT_DISPLAY_NAME = "Alex Johnson";
-const DEFAULT_EMAIL = "alex.j@example.com";
+const DEFAULT_DISPLAY_NAME = "BetterBite User";
+const DEFAULT_EMAIL = "";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -458,5 +458,5 @@ function trimText(value: unknown, maxLength: number): string {
 
 function sanitizeEmail(value: unknown): string {
   const email = trimText(value, 160).toLowerCase();
-  return EMAIL_PATTERN.test(email) ? email : DEFAULT_EMAIL;
+  return !email || EMAIL_PATTERN.test(email) ? email : DEFAULT_EMAIL;
 }

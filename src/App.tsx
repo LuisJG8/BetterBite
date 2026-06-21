@@ -194,8 +194,8 @@ const RECOMMENDED_FOODS = [
 
 function createEmptyOnboardingProfile(): OnboardingProfile {
   return {
-    displayName: "Alex Johnson",
-    email: "alex.j@example.com",
+    displayName: "BetterBite User",
+    email: "",
     mainGoals: [],
     dietPreferences: [],
     foodsToAvoid: [],
@@ -541,13 +541,13 @@ export default function App() {
     setOnboardingStep(ONBOARDING_SEQUENCE[currentIndex - 1]);
   }
 
-  function handleOnboardingContinue() {
+  function handleOnboardingContinue(accountEmail?: string) {
     if (onboardingStep === "app" || !canContinueOnboardingStep(onboardingStep, onboardingProfile)) {
       return;
     }
 
     if (onboardingStep === "account") {
-      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, completed: true });
+      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, email: accountEmail ?? onboardingProfile.email, completed: true });
       const loginActivity = recordLoginActivityOnce();
       setOnboardingProfile(completedProfile);
       if (loginActivity) {
@@ -1489,7 +1489,7 @@ function ProfileScreen({
           </button>
         </div>
         <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">{profile.displayName}</h2>
-        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">{profile.email}</p>
+        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">{profile.email || "Add your email"}</p>
         <button
           className="mt-5 min-h-11 rounded-full border-2 border-[#00BFC3] px-8 text-[15px] font-semibold text-[#00696B] transition hover:bg-[#E8FDFD] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
           type="button"
