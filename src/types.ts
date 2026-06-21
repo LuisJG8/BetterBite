@@ -117,6 +117,8 @@ export type SwapStrictness =
   | "strict-clean-label";
 
 export interface OnboardingProfile {
+  displayName: string;
+  email: string;
   mainGoals: MainGoal[];
   dietPreferences: DietPreference[];
   foodsToAvoid: FoodAvoidance[];
