@@ -1538,6 +1538,7 @@ function ProfileScreen({
       <AnimatePresence>
         {isEditingProfile && (
           <EditProfileSheet
+            key="edit-profile-sheet"
             draftProfile={draftProfile}
             onDraftChange={updateDraftProfile}
             onClose={closeEditProfile}
@@ -1560,9 +1561,63 @@ function EditProfileSheet({
   onClose: () => void;
   onSave: () => void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
   const nameError = getProfileNameError(draftProfile.displayName);
   const emailError = getProfileEmailError(draftProfile.email);
   const canSave = !nameError && !emailError && isOnboardingProfileReady(draftProfile);
+
+  useEffect(() => {
+    const focusTimer = window.setTimeout(() => {
+      dialogRef.current?.querySelector<HTMLElement>("input, button")?.focus();
+    }, 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
 
   function handleMainGoalToggle(goal: MainGoal) {
     onDraftChange((current) => ({
@@ -1594,11 +1649,13 @@ function EditProfileSheet({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
     >
-      <button className="absolute inset-0 cursor-default" type="button" aria-label="Close edit profile" onClick={onClose} />
+      <button className="absolute inset-0 cursor-default" type="button" tabIndex={-1} aria-label="Close edit profile" onClick={onClose} />
       <motion.section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-profile-title"
+        tabIndex={-1}
         className="relative flex max-h-[88dvh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[28px] bg-[#F8FAFB] shadow-[0_-24px_60px_rgba(0,44,45,0.22)] md:mb-6 md:rounded-[28px]"
         initial={{ y: "100%" }}
         animate={{ y: 0 }}
