@@ -51,12 +51,17 @@ const SWAP_STRICTNESS: SwapStrictness[] = [
   "same-convenience",
   "strict-clean-label",
 ];
+const DEFAULT_DISPLAY_NAME = "Alex Johnson";
+const DEFAULT_EMAIL = "alex.j@example.com";
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const DEFAULT_SETTINGS: AppSettings = {
   strictSeedOilPenalty: true,
 };
 
 const DEFAULT_ONBOARDING_PROFILE: OnboardingProfile = {
+  displayName: DEFAULT_DISPLAY_NAME,
+  email: DEFAULT_EMAIL,
   mainGoals: [],
   dietPreferences: [],
   foodsToAvoid: [],
@@ -338,12 +343,16 @@ function toOnboardingProfile(value: unknown): OnboardingProfile {
     return DEFAULT_ONBOARDING_PROFILE;
   }
 
+  const displayName = trimText(value.displayName, 80) || DEFAULT_DISPLAY_NAME;
+  const email = sanitizeEmail(value.email);
   const mainGoals = sanitizeOptionArray(value.mainGoals, MAIN_GOALS);
   const dietPreferences = sanitizeOptionArray(value.dietPreferences, DIET_PREFERENCES, "no-preference");
   const foodsToAvoid = sanitizeOptionArray(value.foodsToAvoid, FOODS_TO_AVOID, "none");
   const swapStrictness = sanitizeOptionArray(value.swapStrictness, SWAP_STRICTNESS);
 
   return {
+    displayName,
+    email,
     mainGoals,
     dietPreferences,
     foodsToAvoid,
@@ -445,4 +454,9 @@ function trimText(value: unknown, maxLength: number): string {
   }
 
   return value.trim().slice(0, maxLength);
+}
+
+function sanitizeEmail(value: unknown): string {
+  const email = trimText(value, 160).toLowerCase();
+  return EMAIL_PATTERN.test(email) ? email : DEFAULT_EMAIL;
 }
