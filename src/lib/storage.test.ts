@@ -143,6 +143,8 @@ describe("storage helpers", () => {
 
   it("persists completed onboarding when required question groups have valid values", () => {
     expect(loadOnboardingProfile()).toEqual({
+      displayName: "BetterBite User",
+      email: "",
       mainGoals: [],
       dietPreferences: [],
       foodsToAvoid: [],
@@ -151,6 +153,8 @@ describe("storage helpers", () => {
     });
 
     saveOnboardingProfile({
+      displayName: "Jordan Lee",
+      email: "Jordan@Example.COM ",
       mainGoals: ["eat-healthier", "energy-focus"],
       dietPreferences: ["vegetarian", "gluten-free"],
       foodsToAvoid: ["seed-oils", "added-sugars"],
@@ -158,6 +162,8 @@ describe("storage helpers", () => {
       completed: true,
     });
     expect(loadOnboardingProfile()).toEqual({
+      displayName: "Jordan Lee",
+      email: "jordan@example.com",
       mainGoals: ["eat-healthier", "energy-focus"],
       dietPreferences: ["vegetarian", "gluten-free"],
       foodsToAvoid: ["seed-oils", "added-sugars"],
@@ -168,6 +174,8 @@ describe("storage helpers", () => {
     localStorage.setItem(
       ONBOARDING_KEY,
       JSON.stringify({
+        displayName: "",
+        email: "not-an-email",
         mainGoals: ["pizza", "manage-weight"],
         dietPreferences: ["vegetarian", "daily"],
         foodsToAvoid: ["gmos", "unknown"],
@@ -176,6 +184,8 @@ describe("storage helpers", () => {
       }),
     );
     expect(loadOnboardingProfile()).toEqual({
+      displayName: "BetterBite User",
+      email: "",
       mainGoals: ["manage-weight"],
       dietPreferences: ["vegetarian"],
       foodsToAvoid: ["gmos"],
@@ -197,6 +207,8 @@ describe("storage helpers", () => {
     );
 
     expect(loadOnboardingProfile()).toEqual({
+      displayName: "BetterBite User",
+      email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["vegan"],
       foodsToAvoid: [],
@@ -207,6 +219,8 @@ describe("storage helpers", () => {
 
   it("keeps exclusive onboarding options mutually exclusive", () => {
     saveOnboardingProfile({
+      displayName: "Alex Johnson",
+      email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["no-preference", "vegan", "gluten-free"],
       foodsToAvoid: ["none", "seed-oils", "added-sugars"],
@@ -215,6 +229,8 @@ describe("storage helpers", () => {
     });
 
     expect(loadOnboardingProfile()).toEqual({
+      displayName: "Alex Johnson",
+      email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["no-preference"],
       foodsToAvoid: ["none"],
@@ -289,6 +305,8 @@ describe("storage helpers", () => {
     expect(() => saveSettings({ strictSeedOilPenalty: false })).not.toThrow();
     expect(() =>
       saveOnboardingProfile({
+        displayName: "Alex Johnson",
+        email: "",
         mainGoals: ["eat-healthier"],
         dietPreferences: ["vegan"],
         foodsToAvoid: ["none"],
