@@ -32,6 +32,7 @@ import menuPhoto from "./assets/menu-photo.jpg";
 import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
 import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
+import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./components/onboardingOptions";
 import { SearchScreen } from "./components/SearchScreen";
 import { getAlternatives } from "./lib/alternatives";
 import { buildActivityChart, formatActivityWeekRange, type ActivityChart } from "./lib/activityChart";
@@ -201,6 +202,8 @@ const RECOMMENDED_FOODS = [
 
 function createEmptyOnboardingProfile(): OnboardingProfile {
   return {
+    displayName: "BetterBite User",
+    email: "",
     mainGoals: [],
     dietPreferences: [],
     foodsToAvoid: [],
@@ -550,13 +553,13 @@ export default function App() {
     setOnboardingStep(ONBOARDING_SEQUENCE[currentIndex - 1]);
   }
 
-  function handleOnboardingContinue() {
+  function handleOnboardingContinue(accountEmail?: string) {
     if (onboardingStep === "app" || !canContinueOnboardingStep(onboardingStep, onboardingProfile)) {
       return;
     }
 
     if (onboardingStep === "account") {
-      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, completed: true });
+      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, email: accountEmail ?? onboardingProfile.email, completed: true });
       const loginActivity = recordLoginActivityOnce();
       setOnboardingProfile(completedProfile);
       if (loginActivity) {
@@ -734,8 +737,12 @@ export default function App() {
 
     return (
       <ProfileScreen
+        profile={onboardingProfile}
         chart={activityChart}
         history={history}
+        onProfileSave={(nextProfile) => {
+          setOnboardingProfile(saveOnboardingProfile(nextProfile));
+        }}
         onLogOut={() => {
           const nextProfile = createEmptyOnboardingProfile();
           setOnboardingProfile(saveOnboardingProfile(nextProfile));
@@ -1736,7 +1743,21 @@ function SavedSwapHistoryRow({ item, onSelect }: { item: SavedSwapHistoryItem; o
   );
 }
 
-function ProfileScreen({ chart, history, onLogOut }: { chart: ActivityChart; history: ScanHistoryItem[]; onLogOut: () => void }) {
+function ProfileScreen({
+  profile,
+  chart,
+  history,
+  onProfileSave,
+  onLogOut,
+}: {
+  profile: OnboardingProfile;
+  chart: ActivityChart;
+  history: ScanHistoryItem[];
+  onProfileSave: (profile: OnboardingProfile) => void;
+  onLogOut: () => void;
+}) {
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [draftProfile, setDraftProfile] = useState<OnboardingProfile>(profile);
   const streakLabel = chart.currentStreak === 1 ? "1 Day" : `${chart.currentStreak} Days`;
   const metrics = [
     { label: "Age", value: "28", suffix: "Years", tone: "text-[#00696B]" },
@@ -1751,12 +1772,38 @@ function ProfileScreen({ chart, history, onLogOut }: { chart: ActivityChart; his
     { label: "Data & Storage", icon: <Database size={21} strokeWidth={1.9} />, danger: false },
   ];
 
+  function openEditProfile() {
+    setDraftProfile(profile);
+    setIsEditingProfile(true);
+  }
+
+  function closeEditProfile() {
+    setDraftProfile(profile);
+    setIsEditingProfile(false);
+  }
+
+  function saveProfileDraft() {
+    const nextProfile = {
+      ...draftProfile,
+      displayName: draftProfile.displayName.trim(),
+      email: draftProfile.email.trim().toLowerCase(),
+      completed: isOnboardingProfileReady(draftProfile),
+    };
+
+    onProfileSave(nextProfile);
+    setIsEditingProfile(false);
+  }
+
+  function updateDraftProfile(updater: (current: OnboardingProfile) => OnboardingProfile) {
+    setDraftProfile((current) => updater(current));
+  }
+
   return (
     <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-8">
       <section className="flex flex-col items-center px-5 pt-5 text-center">
         <div className="relative">
           <div className="h-[120px] w-[120px] overflow-hidden rounded-full border-4 border-[#AEEED8] bg-white shadow-[0_16px_34px_rgba(0,105,107,0.10)]">
-            <img className="h-full w-full object-cover" src={profilePhoto} alt="Luis Gonzalez" />
+            <img className="h-full w-full object-cover" src={profilePhoto} alt={profile.displayName} />
           </div>
           <button
             className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_22px_rgba(0,105,107,0.24)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
@@ -1766,11 +1813,12 @@ function ProfileScreen({ chart, history, onLogOut }: { chart: ActivityChart; his
             <Pencil size={15} strokeWidth={3} />
           </button>
         </div>
-        <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">Alex Johnson</h2>
-        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">alex.j@example.com</p>
+        <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">{profile.displayName}</h2>
+        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">{profile.email || "Add your email"}</p>
         <button
           className="mt-5 min-h-11 rounded-full border-2 border-[#00BFC3] px-8 text-[15px] font-semibold text-[#00696B] transition hover:bg-[#E8FDFD] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
           type="button"
+          onClick={openEditProfile}
         >
           Edit Profile
         </button>
@@ -1811,8 +1859,343 @@ function ProfileScreen({ chart, history, onLogOut }: { chart: ActivityChart; his
           <ProfileSettingsRow label="Log Out" icon={<LogOut size={21} strokeWidth={1.9} />} danger onClick={onLogOut} />
         </div>
       </section>
+
+      <AnimatePresence>
+        {isEditingProfile && (
+          <EditProfileSheet
+            key="edit-profile-sheet"
+            draftProfile={draftProfile}
+            onDraftChange={updateDraftProfile}
+            onClose={closeEditProfile}
+            onSave={saveProfileDraft}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
+}
+
+function EditProfileSheet({
+  draftProfile,
+  onDraftChange,
+  onClose,
+  onSave,
+}: {
+  draftProfile: OnboardingProfile;
+  onDraftChange: (updater: (current: OnboardingProfile) => OnboardingProfile) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const nameError = getProfileNameError(draftProfile.displayName);
+  const emailError = getProfileEmailError(draftProfile.email);
+  const canSave = !nameError && !emailError && isOnboardingProfileReady(draftProfile);
+
+  useEffect(() => {
+    const focusTimer = window.setTimeout(() => {
+      dialogRef.current?.querySelector<HTMLElement>("input, button")?.focus();
+    }, 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  function handleMainGoalToggle(goal: MainGoal) {
+    onDraftChange((current) => ({
+      ...current,
+      mainGoals: toggleMultiSelect(current.mainGoals, goal),
+    }));
+  }
+
+  function handleDietPreferenceToggle(preference: DietPreference) {
+    onDraftChange((current) => ({
+      ...current,
+      dietPreferences: toggleMultiSelect(current.dietPreferences, preference, "no-preference"),
+    }));
+  }
+
+  function handleFoodAvoidanceToggle(avoidance: FoodAvoidance) {
+    onDraftChange((current) => ({
+      ...current,
+      foodsToAvoid: toggleMultiSelect(current.foodsToAvoid, avoidance, "none"),
+    }));
+  }
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#001B1C]/35 px-0 backdrop-blur-[2px]"
+      role="presentation"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      <button className="absolute inset-0 cursor-default" type="button" tabIndex={-1} aria-label="Close edit profile" onClick={onClose} />
+      <motion.section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-profile-title"
+        tabIndex={-1}
+        className="relative flex max-h-[88dvh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[28px] bg-[#F8FAFB] shadow-[0_-24px_60px_rgba(0,44,45,0.22)] md:mb-6 md:rounded-[28px]"
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <header className="shrink-0 border-b border-[#DDE8E9] bg-white/95 px-5 pb-4 pt-4">
+          <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#C4D6D8]" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#00696B]">Profile</p>
+              <h2 id="edit-profile-title" className="text-[22px] font-black leading-7 text-[#191C1D]">
+                Edit Profile
+              </h2>
+            </div>
+            <button
+              type="button"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EEF7F8] text-[#3B4949] transition hover:bg-[#DDF7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+              aria-label="Close edit profile"
+              onClick={onClose}
+            >
+              <CircleX size={22} strokeWidth={2.2} />
+            </button>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <section>
+            <h3 className="text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Account</h3>
+            <div className="mt-3 space-y-3">
+              <ProfileTextField
+                label="Name"
+                value={draftProfile.displayName}
+                autoComplete="name"
+                maxLength={80}
+                error={nameError}
+                onChange={(value) => onDraftChange((current) => ({ ...current, displayName: value }))}
+              />
+              <ProfileTextField
+                label="Email"
+                value={draftProfile.email}
+                type="email"
+                autoComplete="email"
+                maxLength={160}
+                error={emailError}
+                onChange={(value) => onDraftChange((current) => ({ ...current, email: value }))}
+              />
+            </div>
+          </section>
+
+          <EditProfileChoiceSection
+            className="mt-6"
+            title="Goals"
+            emptyMessage="Choose at least one goal."
+            options={MAIN_GOAL_OPTIONS}
+            values={draftProfile.mainGoals}
+            onToggle={handleMainGoalToggle}
+          />
+
+          <EditProfileChoiceSection
+            className="mt-6"
+            title="Diet"
+            emptyMessage="Choose at least one diet preference."
+            options={DIET_OPTIONS}
+            values={draftProfile.dietPreferences}
+            onToggle={handleDietPreferenceToggle}
+          />
+
+          <EditProfileChoiceSection
+            className="mt-6"
+            title="Avoid"
+            emptyMessage="Choose at least one ingredient preference."
+            options={FOOD_AVOIDANCE_OPTIONS}
+            values={draftProfile.foodsToAvoid}
+            onToggle={handleFoodAvoidanceToggle}
+          />
+        </div>
+
+        <footer className="grid shrink-0 grid-cols-[0.82fr_1.18fr] gap-3 border-t border-[#DDE8E9] bg-white/95 px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4">
+          <button
+            type="button"
+            className="flex h-12 items-center justify-center rounded-[14px] border border-[#C9DCDD] text-[15px] font-black text-[#3B4949] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`flex h-12 items-center justify-center rounded-[14px] text-[15px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
+              canSave
+                ? "bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] active:translate-y-px"
+                : "bg-[#D6E0E2] text-[#8B9A9C]"
+            }`}
+            disabled={!canSave}
+            onClick={onSave}
+          >
+            Save changes
+          </button>
+        </footer>
+      </motion.section>
+    </motion.div>
+  );
+}
+
+function ProfileTextField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  autoComplete,
+  maxLength,
+  error,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: "email" | "text";
+  autoComplete: string;
+  maxLength: number;
+  error: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[13px] font-black leading-5 text-[#3B4949]">{label}</span>
+      <input
+        className={`h-12 w-full rounded-[14px] border bg-white px-4 text-[15px] font-bold text-[#191C1D] outline-none transition placeholder:text-[#9BA5A7] focus:border-[#00AEB1] focus:ring-2 focus:ring-[#00C5C8]/20 ${
+          error ? "border-[#D8574E]" : "border-[#D9E4E5]"
+        }`}
+        type={type}
+        value={value}
+        autoComplete={autoComplete}
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <span className={`mt-1 block min-h-4 text-[12px] font-bold leading-4 ${error ? "text-[#BA1A1A]" : "text-transparent"}`}>
+        {error || "Valid"}
+      </span>
+    </label>
+  );
+}
+
+function EditProfileChoiceSection<T extends string>({
+  title,
+  emptyMessage,
+  options,
+  values,
+  onToggle,
+  className = "",
+}: {
+  title: string;
+  emptyMessage: string;
+  options: Array<ChoiceOption<T>>;
+  values: T[];
+  onToggle: (value: T) => void;
+  className?: string;
+}) {
+  return (
+    <section className={className}>
+      <div className="flex items-end justify-between gap-3">
+        <h3 className="text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">{title}</h3>
+        {values.length === 0 && <p className="text-right text-[12px] font-bold leading-4 text-[#BA1A1A]">{emptyMessage}</p>}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {options.map((option) => {
+          const isSelected = values.includes(option.value);
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={isSelected}
+              className={`flex min-h-[68px] min-w-0 items-center gap-2 rounded-[14px] border p-2.5 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
+                isSelected
+                  ? "border-[#009A9D] bg-[#E1FAF4] shadow-[0_8px_20px_rgba(0,105,107,0.10)]"
+                  : "border-[#D9E4E5] bg-white hover:border-[#00C5C8]"
+              }`}
+              onClick={() => onToggle(option.value)}
+            >
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${option.tint}`}>{option.icon}</span>
+              <span className="min-w-0 flex-1 text-[13px] font-black leading-[1.18] text-[#191C1D]">{option.label}</span>
+              {isSelected && <CheckCircle2 className="shrink-0 text-[#00696B]" size={17} strokeWidth={2.6} aria-hidden="true" />}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function getProfileNameError(value: string): string {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "Name is required.";
+  }
+
+  if (trimmedValue.length > 80) {
+    return "Name must be 80 characters or less.";
+  }
+
+  return "";
+}
+
+function getProfileEmailError(value: string): string {
+  const email = value.trim().toLowerCase();
+
+  if (!email) {
+    return "Email is required.";
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return "Enter a valid email.";
+  }
+
+  return "";
 }
 
 function ProfileSettingsRow({
