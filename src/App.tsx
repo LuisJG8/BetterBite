@@ -25,7 +25,7 @@ import {
   Sparkles,
   User,
 } from "lucide-react";
-import { Fragment, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
 import menuPhoto from "./assets/menu-photo.jpg";
@@ -54,6 +54,15 @@ import {
   upsertScanHistory,
 } from "./lib/storage";
 import { acceptSwap, type AcceptedSwapIds } from "./lib/swapState";
+import {
+  getAdjacentTab,
+  getSwipeProgress,
+  getTabDirection,
+  resolveSwipeTarget,
+  shouldStartHorizontalSwipe,
+  type AppTab,
+  type TabDirection,
+} from "./lib/tabNavigation";
 import type {
   ActivityDay,
   AlternativeProduct,
@@ -70,7 +79,6 @@ import type {
   ScanHistoryItem,
 } from "./types";
 
-type Tab = "home" | "search" | "scan" | "history" | "profile";
 type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
 type ScanCameraMode = "barcode" | "food";
 type SwapDetailSide = "original" | "alternative";
@@ -238,7 +246,7 @@ function toggleMultiSelect<T extends string>(currentValues: T[], value: T, exclu
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>(() => loadOnboardingProfile());
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(() => (loadOnboardingProfile().completed ? "app" : "welcome"));
   const [barcode, setBarcode] = useState(TEST_BARCODE);
@@ -504,7 +512,11 @@ export default function App() {
     saveSettings(next);
   }
 
-  function handleTabChange(nextTab: Tab) {
+  function handleTabChange(nextTab: AppTab) {
+    if (nextTab === activeTab) {
+      return;
+    }
+
     if (nextTab === "profile" && activeTab !== "profile") {
       setActivityDays(recordActivity("profile_view"));
     }
@@ -656,6 +668,84 @@ export default function App() {
     setIsHistoryDetailLoading(false);
   }
 
+  function renderTabContent(tab: AppTab): ReactNode {
+    if (tab === "home" || tab === "scan") {
+      return (
+        <>
+          <DashboardScanScreen
+            mode={tab === "scan" ? "scan" : "home"}
+            barcode={barcode}
+            error={error}
+            isLoading={isLoading}
+            showBarcodeEntry={showScanEntry}
+            onBarcodeChange={setBarcode}
+            onSubmit={handleSubmit}
+            onScanMenuPress={handleScanFoodPress}
+            onRestartOnboardingTest={handleRestartOnboardingTest}
+          />
+
+          {tab === "scan" && product && qualityScore && (
+            <div ref={scanResultRef} className="mt-5">
+              <ProductResult product={product} score={qualityScore} alternatives={alternatives} showAlternatives={false} />
+              <div className="mt-5">
+                <SwapScreen
+                  products={[product]}
+                  settings={settings}
+                  detail={swapDetail}
+                  acceptedSwapIds={acceptedSwapIds}
+                  savedSwapKeys={savedSwapKeys}
+                  onDetailChange={setSwapDetail}
+                  onAlternativeAccept={handleAlternativeAccept}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    if (tab === "history") {
+      return selectedHistoryItem ? (
+        <HistoryFoodDetail
+          item={selectedHistoryItem}
+          product={selectedHistoryProduct}
+          score={selectedHistoryScore}
+          isLoading={isHistoryDetailLoading}
+          error={historyDetailError}
+          onBack={clearHistoryDetail}
+        />
+      ) : selectedSavedSwap ? (
+        <SavedSwapHistoryDetail item={selectedSavedSwap} onBack={clearHistoryDetail} />
+      ) : (
+        <HistoryScreen
+          history={history}
+          savedSwapHistory={savedSwapHistory}
+          filter={historyFilter}
+          onFilterChange={handleHistoryFilterChange}
+          onItemSelect={(item) => void handleHistoryItemSelect(item)}
+          onSavedSwapSelect={setSelectedSavedSwap}
+        />
+      );
+    }
+
+    if (tab === "search") {
+      return <SearchScreen />;
+    }
+
+    return (
+      <ProfileScreen
+        chart={activityChart}
+        history={history}
+        onLogOut={() => {
+          const nextProfile = createEmptyOnboardingProfile();
+          setOnboardingProfile(saveOnboardingProfile(nextProfile));
+          setOnboardingStep("welcome");
+          setActiveTab("scan");
+        }}
+      />
+    );
+  }
+
   if (onboardingStep !== "app") {
     return (
       <OnboardingFlow
@@ -674,115 +764,7 @@ export default function App() {
     <main className="min-h-[100dvh] bg-cream text-ink">
       <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
         <section ref={contentScrollRef} className="app-scroll-area min-h-0 flex-1 px-5 pb-24 pt-safe-offset">
-          <AnimatePresence mode="wait">
-            {(activeTab === "home" || activeTab === "scan") && (
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22 }}
-                className="min-h-full"
-              >
-                <DashboardScanScreen
-                  mode={activeTab === "scan" ? "scan" : "home"}
-                  barcode={barcode}
-                  error={error}
-                  isLoading={isLoading}
-                  showBarcodeEntry={showScanEntry}
-                  onBarcodeChange={setBarcode}
-                  onSubmit={handleSubmit}
-                  onScanMenuPress={handleScanFoodPress}
-                  onRestartOnboardingTest={handleRestartOnboardingTest}
-                />
-
-                {activeTab === "scan" && product && qualityScore && (
-                  <div ref={scanResultRef} className="mt-5">
-                    <ProductResult product={product} score={qualityScore} alternatives={alternatives} showAlternatives={false} />
-                    <div className="mt-5">
-                      <SwapScreen
-                        products={[product]}
-                        settings={settings}
-                        detail={swapDetail}
-                        acceptedSwapIds={acceptedSwapIds}
-                        savedSwapKeys={savedSwapKeys}
-                        onDetailChange={setSwapDetail}
-                        onAlternativeAccept={handleAlternativeAccept}
-                      />
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {activeTab === "history" && (
-              <motion.div
-                key="history"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22 }}
-                className="min-h-full"
-              >
-                {selectedHistoryItem ? (
-                  <HistoryFoodDetail
-                    item={selectedHistoryItem}
-                    product={selectedHistoryProduct}
-                    score={selectedHistoryScore}
-                    isLoading={isHistoryDetailLoading}
-                    error={historyDetailError}
-                    onBack={clearHistoryDetail}
-                  />
-                ) : selectedSavedSwap ? (
-                  <SavedSwapHistoryDetail item={selectedSavedSwap} onBack={clearHistoryDetail} />
-                ) : (
-                  <HistoryScreen
-                    history={history}
-                    savedSwapHistory={savedSwapHistory}
-                    filter={historyFilter}
-                    onFilterChange={handleHistoryFilterChange}
-                    onItemSelect={(item) => void handleHistoryItemSelect(item)}
-                    onSavedSwapSelect={setSelectedSavedSwap}
-                  />
-                )}
-              </motion.div>
-            )}
-
-            {activeTab === "search" && (
-              <motion.div
-                key="search"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22 }}
-                className="min-h-full"
-              >
-                <SearchScreen />
-              </motion.div>
-            )}
-
-            {activeTab === "profile" && (
-              <motion.div
-                key="profile"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22 }}
-                className="min-h-full"
-              >
-                <ProfileScreen
-                  chart={activityChart}
-                  history={history}
-                  onLogOut={() => {
-                    const nextProfile = createEmptyOnboardingProfile();
-                    setOnboardingProfile(saveOnboardingProfile(nextProfile));
-                    setOnboardingStep("welcome");
-                    setActiveTab("scan");
-                  }}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <SwipeableTabViewport activeTab={activeTab} disabled={showBrowserScanner} onTabChange={handleTabChange} renderTab={renderTabContent} />
         </section>
 
         <nav className="shrink-0 border-t border-line bg-white/92 px-4 pb-safe-offset pt-2 shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
@@ -840,6 +822,347 @@ export default function App() {
       </div>
     </main>
   );
+}
+
+type SwipeTransition = {
+  direction: TabDirection;
+  offsetX: number;
+  settling: boolean;
+  target: AppTab | null;
+};
+
+type SwipeGesture = {
+  axis: "pending" | "horizontal";
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastTime: number;
+  tab: AppTab;
+  velocityX: number;
+  width: number;
+};
+
+const TAB_SWIPE_SETTLE_MS = 230;
+const TAB_SWIPE_REDUCED_MOTION_MS = 120;
+const TAB_SWIPE_SCALE_DELTA = 0.06;
+const TAB_SWIPE_BOUNDARY_RESISTANCE = 0.28;
+const TAB_SWIPE_IGNORE_SELECTOR = [
+  "a",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='dialog']",
+  "[aria-modal='true']",
+  "[data-swipe-ignore='true']",
+].join(",");
+
+function SwipeableTabViewport({
+  activeTab,
+  disabled,
+  onTabChange,
+  renderTab,
+}: {
+  activeTab: AppTab;
+  disabled: boolean;
+  onTabChange: (tab: AppTab) => void;
+  renderTab: (tab: AppTab) => ReactNode;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<SwipeGesture | null>(null);
+  const transitionRef = useRef<SwipeTransition | null>(null);
+  const settleTimerRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [displayTab, setDisplayTab] = useState(activeTab);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const [transition, setTransition] = useState<SwipeTransition | null>(null);
+  const settleDuration = prefersReducedMotion ? TAB_SWIPE_REDUCED_MOTION_MS : TAB_SWIPE_SETTLE_MS;
+  const width = viewportWidth || viewportRef.current?.getBoundingClientRect().width || 1;
+  const progress = transition ? getSwipeProgress({ offsetX: transition.offsetX, width }) : 0;
+  const currentScale = prefersReducedMotion ? 1 : 1 - TAB_SWIPE_SCALE_DELTA * progress;
+  const incomingScale = prefersReducedMotion ? 1 : 1 - TAB_SWIPE_SCALE_DELTA + TAB_SWIPE_SCALE_DELTA * progress;
+  const currentOpacity = transition?.target ? 1 - 0.16 * progress : 1;
+  const incomingOpacity = 0.76 + 0.24 * progress;
+  const transitionCss = transition?.settling
+    ? `transform ${settleDuration}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${settleDuration}ms ease`
+    : "none";
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateWidth = () => setViewportWidth(node.getBoundingClientRect().width);
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    transitionRef.current = transition;
+  }, [transition]);
+
+  useEffect(() => {
+    return () => {
+      clearSettleTimer();
+      cancelPendingAnimationFrame();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === displayTab || gestureRef.current) {
+      return;
+    }
+
+    const direction = getTabDirection(displayTab, activeTab);
+    if (!direction) {
+      setDisplayTab(activeTab);
+      return;
+    }
+
+    clearSettleTimer();
+    cancelPendingAnimationFrame();
+    setSwipeTransition({ direction, offsetX: 0, settling: false, target: activeTab });
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      settleTransition({ direction, target: activeTab, offsetX: -direction * width, notify: false });
+    });
+  }, [activeTab, displayTab, width]);
+
+  function clearSettleTimer() {
+    if (settleTimerRef.current !== null) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+  }
+
+  function cancelPendingAnimationFrame() {
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  }
+
+  function setSwipeTransition(nextTransition: SwipeTransition | null) {
+    transitionRef.current = nextTransition;
+    setTransition(nextTransition);
+  }
+
+  function settleTransition({
+    direction,
+    target,
+    offsetX,
+    notify,
+  }: {
+    direction: TabDirection;
+    target: AppTab;
+    offsetX: number;
+    notify: boolean;
+  }) {
+    clearSettleTimer();
+    setSwipeTransition({ direction, offsetX, settling: true, target });
+    settleTimerRef.current = window.setTimeout(() => {
+      setDisplayTab(target);
+      setSwipeTransition(null);
+      if (notify) {
+        onTabChange(target);
+      }
+    }, settleDuration);
+  }
+
+  function snapBackTransition(direction: TabDirection, target: AppTab | null) {
+    clearSettleTimer();
+    setSwipeTransition({ direction, offsetX: 0, settling: true, target });
+    settleTimerRef.current = window.setTimeout(() => {
+      setSwipeTransition(null);
+    }, settleDuration);
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (disabled || transitionRef.current?.settling || event.button !== 0 || shouldIgnoreSwipeStart(event.target)) {
+      return;
+    }
+
+    const nodeWidth = viewportRef.current?.getBoundingClientRect().width ?? 0;
+    if (nodeWidth <= 0) {
+      return;
+    }
+
+    gestureRef.current = {
+      axis: "pending",
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastTime: event.timeStamp,
+      tab: displayTab,
+      velocityX: 0,
+      width: nodeWidth,
+    };
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+
+    if (gesture.axis === "pending") {
+      if (!shouldStartHorizontalSwipe({ deltaX, deltaY })) {
+        if (Math.abs(deltaY) > 8 && Math.abs(deltaY) > Math.abs(deltaX)) {
+          gestureRef.current = null;
+        }
+        return;
+      }
+
+      gesture.axis = "horizontal";
+      viewportRef.current?.setPointerCapture(event.pointerId);
+    }
+
+    event.preventDefault();
+
+    const direction: TabDirection = deltaX < 0 ? 1 : -1;
+    const target = getAdjacentTab(gesture.tab, direction);
+    const constrainedOffset = target ? clamp(deltaX, -gesture.width, gesture.width) : deltaX * TAB_SWIPE_BOUNDARY_RESISTANCE;
+    const elapsed = Math.max(1, event.timeStamp - gesture.lastTime);
+    gesture.velocityX = ((event.clientX - gesture.lastX) / elapsed) * 1000;
+    gesture.lastX = event.clientX;
+    gesture.lastTime = event.timeStamp;
+
+    setSwipeTransition({
+      direction,
+      offsetX: constrainedOffset,
+      settling: false,
+      target,
+    });
+  }
+
+  function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
+      viewportRef.current.releasePointerCapture(event.pointerId);
+    }
+
+    gestureRef.current = null;
+
+    const activeTransition = transitionRef.current;
+    if (!activeTransition || gesture.axis !== "horizontal") {
+      return;
+    }
+
+    const resolution = resolveSwipeTarget({
+      tab: gesture.tab,
+      offsetX: activeTransition.offsetX,
+      velocityX: gesture.velocityX,
+      width: gesture.width,
+    });
+
+    if (resolution.shouldCommit && resolution.target) {
+      settleTransition({
+        direction: resolution.direction,
+        target: resolution.target,
+        offsetX: -resolution.direction * gesture.width,
+        notify: true,
+      });
+      return;
+    }
+
+    snapBackTransition(activeTransition.direction, activeTransition.target);
+  }
+
+  const currentTransform = `translate3d(${transition?.offsetX ?? 0}px, 0, 0) scale(${currentScale})`;
+  const incomingTransform =
+    transition && transition.target
+      ? `translate3d(${transition.offsetX + transition.direction * width}px, 0, 0) scale(${incomingScale})`
+      : undefined;
+
+  return (
+    <div
+      ref={viewportRef}
+      className="relative min-h-full overflow-x-hidden"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerCancel={handlePointerEnd}
+      onPointerUp={handlePointerEnd}
+    >
+      <motion.div
+        key={displayTab}
+        className="min-h-full origin-center will-change-transform"
+        style={{
+          opacity: currentOpacity,
+          transform: currentTransform,
+          transition: transitionCss,
+        }}
+      >
+        {renderTab(displayTab)}
+      </motion.div>
+
+      {transition?.target && (
+        <motion.div
+          key={transition.target}
+          aria-hidden={transition.target !== activeTab}
+          className="absolute inset-x-0 top-0 min-h-full origin-center will-change-transform"
+          style={{
+            opacity: incomingOpacity,
+            pointerEvents: "none",
+            transform: incomingTransform,
+            transition: transitionCss,
+          }}
+        >
+          {renderTab(transition.target)}
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+function shouldIgnoreSwipeStart(target: EventTarget): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest(TAB_SWIPE_IGNORE_SELECTOR)) {
+    return true;
+  }
+
+  let currentElement: Element | null = target;
+  while (currentElement && currentElement !== document.body) {
+    const style = window.getComputedStyle(currentElement);
+    const canScrollHorizontally =
+      (style.overflowX === "auto" || style.overflowX === "scroll") && currentElement.scrollWidth > currentElement.clientWidth;
+
+    if (canScrollHorizontally) {
+      return true;
+    }
+
+    currentElement = currentElement.parentElement;
+  }
+
+  return false;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function DashboardScanScreen({
