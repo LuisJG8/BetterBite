@@ -10,6 +10,10 @@ const SWIPE_AXIS_RATIO = 1.2;
 
 export function getAdjacentTab(tab: AppTab, direction: TabDirection): AppTab | null {
   const currentIndex = APP_TAB_ORDER.indexOf(tab);
+  if (currentIndex === -1) {
+    return null;
+  }
+
   const nextTab = APP_TAB_ORDER[currentIndex + direction];
 
   return nextTab ?? null;
@@ -19,7 +23,7 @@ export function getTabDirection(fromTab: AppTab, toTab: AppTab): TabDirection | 
   const fromIndex = APP_TAB_ORDER.indexOf(fromTab);
   const toIndex = APP_TAB_ORDER.indexOf(toTab);
 
-  if (fromIndex === toIndex) {
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
     return null;
   }
 
@@ -45,11 +49,13 @@ export function resolveSwipeTarget({
   velocityX: number;
   width: number;
 }): { direction: TabDirection; progress: number; shouldCommit: boolean; target: AppTab | null } {
-  const direction = getSwipeDirection(offsetX, velocityX);
-  const target = getAdjacentTab(tab, direction);
   const progress = getSwipeProgress({ offsetX, width });
   const hasEnoughDistance = progress >= SWIPE_DISTANCE_RATIO;
   const hasEnoughVelocity = Math.abs(velocityX) >= SWIPE_VELOCITY_THRESHOLD;
+  const offsetDirection = getSwipeDirection(offsetX);
+  const velocityDirection = hasEnoughVelocity ? getSwipeDirection(velocityX) : null;
+  const direction = hasEnoughDistance ? offsetDirection : velocityDirection ?? offsetDirection;
+  const target = getAdjacentTab(tab, direction);
 
   return {
     direction,
@@ -66,8 +72,6 @@ export function shouldStartHorizontalSwipe({ deltaX, deltaY }: { deltaX: number;
   return absX >= SWIPE_AXIS_THRESHOLD && absX >= absY * SWIPE_AXIS_RATIO;
 }
 
-function getSwipeDirection(offsetX: number, velocityX: number): TabDirection {
-  const directionalValue = Math.abs(velocityX) >= SWIPE_VELOCITY_THRESHOLD ? velocityX : offsetX;
-
-  return directionalValue < 0 ? 1 : -1;
+function getSwipeDirection(value: number): TabDirection {
+  return value < 0 ? 1 : -1;
 }

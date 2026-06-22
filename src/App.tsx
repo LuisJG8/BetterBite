@@ -925,9 +925,7 @@ function SwipeableTabViewport({
   useEffect(() => {
     return () => {
       clearSettleTimer();
-      if (animationFrameRef.current !== null) {
-        window.cancelAnimationFrame(animationFrameRef.current);
-      }
+      cancelPendingAnimationFrame();
     };
   }, []);
 
@@ -943,8 +941,10 @@ function SwipeableTabViewport({
     }
 
     clearSettleTimer();
+    cancelPendingAnimationFrame();
     setSwipeTransition({ direction, offsetX: 0, settling: false, target: activeTab });
     animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
       settleTransition({ direction, target: activeTab, offsetX: -direction * width, notify: false });
     });
   }, [activeTab, displayTab, width]);
@@ -953,6 +953,13 @@ function SwipeableTabViewport({
     if (settleTimerRef.current !== null) {
       window.clearTimeout(settleTimerRef.current);
       settleTimerRef.current = null;
+    }
+  }
+
+  function cancelPendingAnimationFrame() {
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
   }
 
@@ -1032,7 +1039,7 @@ function SwipeableTabViewport({
       }
 
       gesture.axis = "horizontal";
-      event.currentTarget.setPointerCapture(event.pointerId);
+      viewportRef.current?.setPointerCapture(event.pointerId);
     }
 
     event.preventDefault();
@@ -1059,8 +1066,8 @@ function SwipeableTabViewport({
       return;
     }
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
+      viewportRef.current.releasePointerCapture(event.pointerId);
     }
 
     gestureRef.current = null;
@@ -1137,7 +1144,28 @@ function SwipeableTabViewport({
 }
 
 function shouldIgnoreSwipeStart(target: EventTarget): boolean {
-  return target instanceof Element && Boolean(target.closest(TAB_SWIPE_IGNORE_SELECTOR));
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest(TAB_SWIPE_IGNORE_SELECTOR)) {
+    return true;
+  }
+
+  let currentElement: Element | null = target;
+  while (currentElement && currentElement !== document.body) {
+    const style = window.getComputedStyle(currentElement);
+    const canScrollHorizontally =
+      (style.overflowX === "auto" || style.overflowX === "scroll") && currentElement.scrollWidth > currentElement.clientWidth;
+
+    if (canScrollHorizontally) {
+      return true;
+    }
+
+    currentElement = currentElement.parentElement;
+  }
+
+  return false;
 }
 
 function clamp(value: number, min: number, max: number): number {

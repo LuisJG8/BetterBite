@@ -19,12 +19,15 @@ describe("tab navigation helpers", () => {
     expect(getAdjacentTab("scan", -1)).toBe("search");
     expect(getAdjacentTab("home", -1)).toBeNull();
     expect(getAdjacentTab("profile", 1)).toBeNull();
+    expect(getAdjacentTab("settings" as never, 1)).toBeNull();
   });
 
   it("reports tab direction from bottom-nav order", () => {
     expect(getTabDirection("home", "profile")).toBe(1);
     expect(getTabDirection("history", "search")).toBe(-1);
     expect(getTabDirection("scan", "scan")).toBeNull();
+    expect(getTabDirection("settings" as never, "home")).toBeNull();
+    expect(getTabDirection("home", "settings" as never)).toBeNull();
   });
 
   it("normalizes swipe progress by width", () => {
@@ -47,6 +50,14 @@ describe("tab navigation helpers", () => {
       direction: -1,
       shouldCommit: true,
       target: "scan",
+    });
+  });
+
+  it("keeps distance-based commits tied to the dragged direction", () => {
+    expect(resolveSwipeTarget({ tab: "scan", offsetX: -150, velocityX: 720, width: 430 })).toMatchObject({
+      direction: 1,
+      shouldCommit: true,
+      target: "history",
     });
   });
 
