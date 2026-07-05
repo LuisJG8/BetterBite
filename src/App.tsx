@@ -18,11 +18,13 @@ import {
   Leaf,
   Loader2,
   LogOut,
+  Mail,
   Pencil,
   RefreshCw,
   Search,
   Shield,
   Sparkles,
+  Trash2,
   User,
 } from "lucide-react";
 import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -82,6 +84,7 @@ import type {
 
 type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
 type ScanCameraMode = "barcode" | "food";
+type ProfileView = "overview" | "history";
 type SwapDetailSide = "original" | "alternative";
 type SwapDetail = {
   barcode: string;
@@ -250,6 +253,7 @@ function toggleMultiSelect<T extends string>(currentValues: T[], value: T, exclu
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [profileView, setProfileView] = useState<ProfileView>("overview");
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>(() => loadOnboardingProfile());
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(() => (loadOnboardingProfile().completed ? "app" : "welcome"));
   const [barcode, setBarcode] = useState(TEST_BARCODE);
@@ -320,7 +324,7 @@ export default function App() {
     requestAnimationFrame(() => {
       contentScrollRef.current?.scrollTo({ top: 0, left: 0 });
     });
-  }, [activeTab, selectedHistoryItem]);
+  }, [activeTab, profileView, selectedHistoryItem]);
 
   function scrollScanResultIntoView(): void {
     requestAnimationFrame(() => {
@@ -528,11 +532,22 @@ export default function App() {
       setSwapDetail(null);
     }
 
-    if (nextTab !== "history") {
+    if (nextTab !== "profile") {
+      setProfileView("overview");
       clearHistoryDetail();
     }
 
     setActiveTab(nextTab);
+  }
+
+  function handleProfileHistoryOpen() {
+    setProfileView("history");
+    clearHistoryDetail();
+  }
+
+  function handleProfileHistoryBack() {
+    setProfileView("overview");
+    clearHistoryDetail();
   }
 
   function handleHistoryFilterChange(nextFilter: HistoryFilter) {
@@ -671,6 +686,31 @@ export default function App() {
     setIsHistoryDetailLoading(false);
   }
 
+  function renderHistoryContent(onBack?: () => void): ReactNode {
+    return selectedHistoryItem ? (
+      <HistoryFoodDetail
+        item={selectedHistoryItem}
+        product={selectedHistoryProduct}
+        score={selectedHistoryScore}
+        isLoading={isHistoryDetailLoading}
+        error={historyDetailError}
+        onBack={clearHistoryDetail}
+      />
+    ) : selectedSavedSwap ? (
+      <SavedSwapHistoryDetail item={selectedSavedSwap} onBack={clearHistoryDetail} />
+    ) : (
+      <HistoryScreen
+        history={history}
+        savedSwapHistory={savedSwapHistory}
+        filter={historyFilter}
+        onFilterChange={handleHistoryFilterChange}
+        onItemSelect={(item) => void handleHistoryItemSelect(item)}
+        onSavedSwapSelect={setSelectedSavedSwap}
+        onBack={onBack}
+      />
+    );
+  }
+
   function renderTabContent(tab: AppTab): ReactNode {
     if (tab === "home" || tab === "scan") {
       return (
@@ -707,32 +747,12 @@ export default function App() {
       );
     }
 
-    if (tab === "history") {
-      return selectedHistoryItem ? (
-        <HistoryFoodDetail
-          item={selectedHistoryItem}
-          product={selectedHistoryProduct}
-          score={selectedHistoryScore}
-          isLoading={isHistoryDetailLoading}
-          error={historyDetailError}
-          onBack={clearHistoryDetail}
-        />
-      ) : selectedSavedSwap ? (
-        <SavedSwapHistoryDetail item={selectedSavedSwap} onBack={clearHistoryDetail} />
-      ) : (
-        <HistoryScreen
-          history={history}
-          savedSwapHistory={savedSwapHistory}
-          filter={historyFilter}
-          onFilterChange={handleHistoryFilterChange}
-          onItemSelect={(item) => void handleHistoryItemSelect(item)}
-          onSavedSwapSelect={setSelectedSavedSwap}
-        />
-      );
-    }
-
     if (tab === "search") {
       return <SearchScreen />;
+    }
+
+    if (profileView === "history") {
+      return renderHistoryContent(handleProfileHistoryBack);
     }
 
     return (
@@ -740,6 +760,7 @@ export default function App() {
         profile={onboardingProfile}
         chart={activityChart}
         history={history}
+        onHistoryOpen={handleProfileHistoryOpen}
         onProfileSave={(nextProfile) => {
           setOnboardingProfile(saveOnboardingProfile(nextProfile));
         }}
@@ -747,6 +768,8 @@ export default function App() {
           const nextProfile = createEmptyOnboardingProfile();
           setOnboardingProfile(saveOnboardingProfile(nextProfile));
           setOnboardingStep("welcome");
+          setProfileView("overview");
+          clearHistoryDetail();
           setActiveTab("scan");
         }}
       />
@@ -770,12 +793,12 @@ export default function App() {
   return (
     <main className="min-h-[100dvh] bg-cream text-ink">
       <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
-        <section ref={contentScrollRef} className="app-scroll-area min-h-0 flex-1 px-5 pb-24 pt-safe-offset">
+        <section ref={contentScrollRef} className="app-scroll-area min-h-0 flex-1 px-5 pb-14 pt-safe-offset">
           <SwipeableTabViewport activeTab={activeTab} disabled={showBrowserScanner} onTabChange={handleTabChange} renderTab={renderTabContent} />
         </section>
 
-        <nav className="shrink-0 border-t border-line bg-white/92 px-4 pb-safe-offset pt-2 shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
-          <div className="grid grid-cols-5">
+        <nav className="h-[calc(3.5rem+env(safe-area-inset-bottom))] shrink-0 border-t border-line bg-white/92 px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
+          <div className="grid h-14 grid-cols-4 place-items-center">
             <NavButton
               testId="nav-home"
               active={activeTab === "home"}
@@ -796,13 +819,6 @@ export default function App() {
               icon={<Camera size={21} />}
               label="Scan"
               onClick={handleScanTabPress}
-            />
-            <NavButton
-              testId="nav-history"
-              active={activeTab === "history"}
-              icon={<History size={21} />}
-              label="History"
-              onClick={() => handleTabChange("history")}
             />
             <NavButton
               testId="nav-profile"
@@ -1106,7 +1122,7 @@ function SwipeableTabViewport({
   return (
     <div
       ref={viewportRef}
-      className={`relative min-h-full overflow-x-hidden touch-pan-y ${
+      className={`relative min-h-full overflow-x-clip overflow-y-visible touch-pan-y ${
         transition?.settling ? "pointer-events-none" : ""
       }`}
       onPointerDown={handlePointerDown}
@@ -1567,11 +1583,11 @@ function DashboardLookupPanel({
 function DashboardStatCard({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone: "blue" | "green" }) {
   const colors =
     tone === "blue"
-      ? "border-[#8BC3CA]/45 bg-[#DFF1F4] text-[#2D666D]"
-      : "border-[#AEEED8]/55 bg-[#E8F7F2] text-[#2C6956]";
+      ? "border-[#8BC3CA]/45 bg-white text-[#2D666D]"
+      : "border-[#AEEED8]/55 bg-white text-[#2C6956]";
 
   return (
-    <div className={`min-h-[126px] rounded-2xl border p-6 ${colors}`}>
+    <div className={`min-h-[122px] rounded-2xl border px-6 py-[22px] ${colors}`}>
       <div className="mb-5">{icon}</div>
       <p className="text-[12px] font-bold leading-4">{label}</p>
       <p className="mt-0.5 text-[14px] font-black leading-5 text-[#191C1D]">{value}</p>
@@ -1611,6 +1627,7 @@ function HistoryScreen({
   onFilterChange,
   onItemSelect,
   onSavedSwapSelect,
+  onBack,
 }: {
   history: ScanHistoryItem[];
   savedSwapHistory: SavedSwapHistoryItem[];
@@ -1618,6 +1635,7 @@ function HistoryScreen({
   onFilterChange: (filter: HistoryFilter) => void;
   onItemSelect: (item: ScanHistoryItem) => void;
   onSavedSwapSelect: (item: SavedSwapHistoryItem) => void;
+  onBack?: () => void;
 }) {
   const filteredHistory = filterHistoryItems(history, filter);
   const savedSwapGroups = groupSavedSwapHistory(savedSwapHistory);
@@ -1626,6 +1644,16 @@ function HistoryScreen({
   return (
     <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-10">
       <div className="px-5 pb-2 pt-8">
+        {onBack && (
+          <button
+            type="button"
+            className="mb-5 flex min-h-10 items-center gap-2 rounded-full border border-[#DDE8E9] bg-white px-4 text-[13px] font-black text-[#00696B] shadow-[0_6px_16px_rgba(0,105,107,0.06)] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+            onClick={onBack}
+          >
+            <ChevronLeft size={17} strokeWidth={2.6} />
+            Profile
+          </button>
+        )}
         <h2 className="text-[32px] font-black leading-tight text-[#191C1D]">My Scans</h2>
         <p className="mt-1 text-[18px] font-medium leading-7 text-[#3B4949]">Review your nutritional history</p>
       </div>
@@ -1747,30 +1775,32 @@ function ProfileScreen({
   profile,
   chart,
   history,
+  onHistoryOpen,
   onProfileSave,
   onLogOut,
 }: {
   profile: OnboardingProfile;
   chart: ActivityChart;
   history: ScanHistoryItem[];
+  onHistoryOpen: () => void;
   onProfileSave: (profile: OnboardingProfile) => void;
   onLogOut: () => void;
 }) {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [draftProfile, setDraftProfile] = useState<OnboardingProfile>(profile);
   const streakLabel = chart.currentStreak === 1 ? "1 Day" : `${chart.currentStreak} Days`;
-  const metrics = [
-    { label: "Age", value: "28", suffix: "Years", tone: "text-[#00696B]" },
-    { label: "Weight", value: "75kg", suffix: "Current", tone: "text-[#00696B]" },
-    { label: "Height", value: "180cm", suffix: "Centimeters", tone: "text-[#00696B]" },
-    { label: "Goal", value: "Bulking", suffix: "Active", tone: "text-[#2C6956]" },
-  ];
+  const profileDisplayName = profile.displayName || "Add your name";
+  const profileEmail = profile.email || "Add your email";
   const settingsItems = [
     { label: "Notifications", icon: <Bell size={21} strokeWidth={1.9} />, danger: false },
     { label: "Privacy Policy", icon: <Shield size={21} strokeWidth={1.9} />, danger: false },
     { label: "Terms of Service", icon: <FileText size={21} strokeWidth={1.9} />, danger: false },
     { label: "Data & Storage", icon: <Database size={21} strokeWidth={1.9} />, danger: false },
   ];
+
+  useEffect(() => {
+    document.querySelector<HTMLElement>(".app-scroll-area")?.scrollTo({ top: 0 });
+  }, [isEditingProfile]);
 
   function openEditProfile() {
     setDraftProfile(profile);
@@ -1780,6 +1810,13 @@ function ProfileScreen({
   function closeEditProfile() {
     setDraftProfile(profile);
     setIsEditingProfile(false);
+  }
+
+  function requestCloseEditProfile() {
+    const hasChanges = JSON.stringify(draftProfile) !== JSON.stringify(profile);
+    if (!hasChanges || window.confirm("Discard unsaved changes?")) {
+      closeEditProfile();
+    }
   }
 
   function saveProfileDraft() {
@@ -1799,11 +1836,28 @@ function ProfileScreen({
   }
 
   return (
-    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-8">
+    <AnimatePresence initial={false} mode="wait">
+      {isEditingProfile ? (
+        <EditProfileSheet
+          key="edit-profile-sheet"
+          draftProfile={draftProfile}
+          onDraftChange={updateDraftProfile}
+          onClose={requestCloseEditProfile}
+          onSave={saveProfileDraft}
+        />
+      ) : (
+        <motion.div
+          key="profile-overview"
+          className="-mx-5 min-h-full bg-[#F8FAFB] pb-8"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+        >
       <section className="flex flex-col items-center px-5 pt-5 text-center">
         <div className="relative">
           <div className="h-[120px] w-[120px] overflow-hidden rounded-full border-4 border-[#AEEED8] bg-white shadow-[0_16px_34px_rgba(0,105,107,0.10)]">
-            <img className="h-full w-full object-cover" src={profilePhoto} alt={profile.displayName} />
+            <img className="h-full w-full object-cover" src={profilePhoto} alt={profileDisplayName} />
           </div>
           <button
             className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_22px_rgba(0,105,107,0.24)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
@@ -1813,8 +1867,8 @@ function ProfileScreen({
             <Pencil size={15} strokeWidth={3} />
           </button>
         </div>
-        <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">{profile.displayName}</h2>
-        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">{profile.email || "Add your email"}</p>
+        <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">{profileDisplayName}</h2>
+        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">{profileEmail}</p>
         <button
           className="mt-5 min-h-11 rounded-full border-2 border-[#00BFC3] px-8 text-[15px] font-semibold text-[#00696B] transition hover:bg-[#E8FDFD] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
           type="button"
@@ -1824,29 +1878,19 @@ function ProfileScreen({
         </button>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 px-5 pt-7">
-        <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="blue" />
-        <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
-      </section>
-
       <section className="px-5 pt-8">
-        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Login Activity</h3>
+        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Activity</h3>
         <ActivityCard chart={chart} />
       </section>
 
-      <section className="px-5 pt-7">
-        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Health Metrics</h3>
-        <div className="grid grid-cols-2 gap-4">
-          {metrics.map((metric) => (
-            <div
-              key={metric.label}
-              className="flex min-h-[116px] flex-col items-center justify-center rounded-xl border border-[#DDE8E9] bg-white/72 px-3 text-center shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur"
-            >
-              <p className="text-[12px] font-bold leading-4 text-[#3B4949]">{metric.label}</p>
-              <p className={`mt-3 text-[25px] font-black leading-8 ${metric.tone}`}>{metric.value}</p>
-              <p className="mt-2 text-[12px] font-bold leading-4 text-[#6B7A7A]">{metric.suffix}</p>
-            </div>
-          ))}
+      <section className="grid grid-cols-2 gap-3 px-5 pt-4">
+        <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="green" />
+        <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
+      </section>
+
+      <section className="px-5 pt-4">
+        <div className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
+          <ProfileSettingsRow label="Food Scan History" icon={<History size={21} strokeWidth={1.9} />} onClick={onHistoryOpen} />
         </div>
       </section>
 
@@ -1856,22 +1900,39 @@ function ProfileScreen({
           {settingsItems.map((item) => (
             <ProfileSettingsRow key={item.label} label={item.label} icon={item.icon} />
           ))}
-          <ProfileSettingsRow label="Log Out" icon={<LogOut size={21} strokeWidth={1.9} />} danger onClick={onLogOut} />
         </div>
       </section>
 
-      <AnimatePresence>
-        {isEditingProfile && (
-          <EditProfileSheet
-            key="edit-profile-sheet"
-            draftProfile={draftProfile}
-            onDraftChange={updateDraftProfile}
-            onClose={closeEditProfile}
-            onSave={saveProfileDraft}
-          />
-        )}
-      </AnimatePresence>
-    </div>
+      <section className="px-5 pt-7">
+        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Support</h3>
+        <a
+          className="flex min-h-[72px] w-full items-center justify-between rounded-xl border border-[#DDE8E9] bg-white/70 px-7 text-left text-[#191C1D] shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+          href="mailto:support@betterbite.app?subject=BetterBite%20Support%20Request"
+          aria-label="Email tech support"
+        >
+          <span className="flex min-w-0 items-center gap-5">
+            <span className="text-[#3B4949]">
+              <Mail size={21} strokeWidth={1.9} />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[16px] font-medium leading-6">Email tech support</span>
+              <span className="block truncate text-[12px] font-bold leading-4 text-[#5F6F70]">support@betterbite.app</span>
+            </span>
+          </span>
+          <ChevronRight className="shrink-0 text-[#BAC9C9]" size={22} strokeWidth={2.2} />
+        </a>
+      </section>
+
+      <section className="px-5 pt-7">
+        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Other</h3>
+        <div className="overflow-hidden rounded-xl border border-[#FFDAD6] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
+          <ProfileSettingsRow label="Log Out" icon={<LogOut size={21} strokeWidth={1.9} />} danger onClick={onLogOut} />
+          <ProfileSettingsRow label="Delete Account" icon={<Trash2 size={21} strokeWidth={1.9} />} danger />
+        </div>
+      </section>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -1886,63 +1947,9 @@ function EditProfileSheet({
   onClose: () => void;
   onSave: () => void;
 }) {
-  const dialogRef = useRef<HTMLElement>(null);
   const nameError = getProfileNameError(draftProfile.displayName);
   const emailError = getProfileEmailError(draftProfile.email);
   const canSave = !nameError && !emailError && isOnboardingProfileReady(draftProfile);
-
-  useEffect(() => {
-    const focusTimer = window.setTimeout(() => {
-      dialogRef.current?.querySelector<HTMLElement>("input, button")?.focus();
-    }, 0);
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-
-      if (event.key !== "Tab") {
-        return;
-      }
-
-      const dialog = dialogRef.current;
-      if (!dialog) {
-        return;
-      }
-
-      const focusableElements = Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((element) => element.offsetParent !== null);
-
-      if (focusableElements.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-
-      if (event.shiftKey && document.activeElement === firstElement) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
-        event.preventDefault();
-        firstElement.focus();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.clearTimeout(focusTimer);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
 
   function handleMainGoalToggle(goal: MainGoal) {
     onDraftChange((current) => ({
@@ -1967,47 +1974,35 @@ function EditProfileSheet({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#001B1C]/35 px-0 backdrop-blur-[2px]"
-      role="presentation"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
+      className="-mx-5 -mb-14 min-h-full bg-[#F8FAFB]"
+      role="region"
+      aria-labelledby="edit-profile-title"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 18 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
     >
-      <button className="absolute inset-0 cursor-default" type="button" tabIndex={-1} aria-label="Close edit profile" onClick={onClose} />
-      <motion.section
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="edit-profile-title"
-        tabIndex={-1}
-        className="relative flex max-h-[88dvh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[28px] bg-[#F8FAFB] shadow-[0_-24px_60px_rgba(0,44,45,0.22)] md:mb-6 md:rounded-[28px]"
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
-        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-      >
-        <header className="shrink-0 border-b border-[#DDE8E9] bg-white/95 px-5 pb-4 pt-4">
-          <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#C4D6D8]" />
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#00696B]">Profile</p>
+      <section className="min-h-full bg-[#F8FAFB]">
+        <header className="border-b border-[#DDE8E9] bg-white px-6 py-5">
+          <div className="flex min-h-[52px] items-center justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] font-black uppercase leading-4 tracking-[0.14em] text-[#00696B]">Profile</p>
               <h2 id="edit-profile-title" className="text-[22px] font-black leading-7 text-[#191C1D]">
                 Edit Profile
               </h2>
             </div>
             <button
               type="button"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EEF7F8] text-[#3B4949] transition hover:bg-[#DDF7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-              aria-label="Close edit profile"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#EEF7F8] text-[#2C4B4B] transition hover:bg-[#DDF7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+              aria-label="Back to profile"
               onClick={onClose}
             >
-              <CircleX size={22} strokeWidth={2.2} />
+              <ChevronLeft size={21} strokeWidth={2.5} />
             </button>
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <div className="px-5 pb-3 pt-5">
           <section>
             <h3 className="text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Account</h3>
             <div className="mt-3 space-y-3">
@@ -2057,30 +2052,23 @@ function EditProfileSheet({
             values={draftProfile.foodsToAvoid}
             onToggle={handleFoodAvoidanceToggle}
           />
-        </div>
 
-        <footer className="grid shrink-0 grid-cols-[0.82fr_1.18fr] gap-3 border-t border-[#DDE8E9] bg-white/95 px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4">
-          <button
-            type="button"
-            className="flex h-12 items-center justify-center rounded-[14px] border border-[#C9DCDD] text-[15px] font-black text-[#3B4949] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className={`flex h-12 items-center justify-center rounded-[14px] text-[15px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
-              canSave
-                ? "bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] active:translate-y-px"
-                : "bg-[#D6E0E2] text-[#8B9A9C]"
-            }`}
-            disabled={!canSave}
-            onClick={onSave}
-          >
-            Save changes
-          </button>
-        </footer>
-      </motion.section>
+          <section className="pt-8">
+            <button
+              type="button"
+              className={`flex h-12 w-full items-center justify-center rounded-[14px] text-[15px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
+                canSave
+                  ? "bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] active:translate-y-px"
+                  : "bg-[#D6E0E2] text-[#8B9A9C]"
+              }`}
+              disabled={!canSave}
+              onClick={onSave}
+            >
+              Save Changes
+            </button>
+          </section>
+        </div>
+      </section>
     </motion.div>
   );
 }
@@ -3489,11 +3477,17 @@ function NavButton({
   return (
     <button
       data-testid={testId}
-      className="group mx-0.5 flex h-[62px] flex-col items-center justify-center gap-1 rounded-full px-1 text-xs font-black text-[#3B4949] outline-none transition focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+      className="group flex h-14 w-[72px] flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[11px] font-black leading-4 text-[#3B4949] outline-none transition focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
     >
-      <span className={`flex h-6 w-6 items-center justify-center transition-colors ${active ? "text-[#0D8F68]" : "text-current group-hover:text-[#00696B]"}`}>{icon}</span>
+      <span
+        className={`flex h-[21px] w-[72px] items-center justify-center transition-colors ${
+          active ? "text-[#0D8F68] [&>svg]:fill-none [&>svg]:stroke-current" : "text-current group-hover:text-[#00696B] [&>svg]:fill-none"
+        }`}
+      >
+        {icon}
+      </span>
       <span className="text-[#3B4949]">{label}</span>
     </button>
   );

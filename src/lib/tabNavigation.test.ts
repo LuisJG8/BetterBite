@@ -10,12 +10,12 @@ import {
 
 describe("tab navigation helpers", () => {
   it("keeps the bottom navigation order", () => {
-    expect(APP_TAB_ORDER).toEqual(["home", "search", "scan", "history", "profile"]);
+    expect(APP_TAB_ORDER).toEqual(["home", "search", "scan", "profile"]);
   });
 
   it("finds adjacent tabs without wrapping", () => {
     expect(getAdjacentTab("home", 1)).toBe("search");
-    expect(getAdjacentTab("scan", 1)).toBe("history");
+    expect(getAdjacentTab("scan", 1)).toBe("profile");
     expect(getAdjacentTab("scan", -1)).toBe("search");
     expect(getAdjacentTab("home", -1)).toBeNull();
     expect(getAdjacentTab("profile", 1)).toBeNull();
@@ -24,7 +24,7 @@ describe("tab navigation helpers", () => {
 
   it("reports tab direction from bottom-nav order", () => {
     expect(getTabDirection("home", "profile")).toBe(1);
-    expect(getTabDirection("history", "search")).toBe(-1);
+    expect(getTabDirection("profile", "search")).toBe(-1);
     expect(getTabDirection("scan", "scan")).toBeNull();
     expect(getTabDirection("settings" as never, "home")).toBeNull();
     expect(getTabDirection("home", "settings" as never)).toBeNull();
@@ -46,7 +46,7 @@ describe("tab navigation helpers", () => {
   });
 
   it("commits a short swipe with enough velocity", () => {
-    expect(resolveSwipeTarget({ tab: "history", offsetX: 30, velocityX: 720, width: 430 })).toMatchObject({
+    expect(resolveSwipeTarget({ tab: "profile", offsetX: 30, velocityX: 720, width: 430 })).toMatchObject({
       direction: -1,
       shouldCommit: true,
       target: "scan",
@@ -57,7 +57,7 @@ describe("tab navigation helpers", () => {
     expect(resolveSwipeTarget({ tab: "scan", offsetX: -150, velocityX: 720, width: 430 })).toMatchObject({
       direction: 1,
       shouldCommit: true,
-      target: "history",
+      target: "profile",
     });
   });
 

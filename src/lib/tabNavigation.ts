@@ -1,4 +1,4 @@
-export const APP_TAB_ORDER = ["home", "search", "scan", "history", "profile"] as const;
+export const APP_TAB_ORDER = ["home", "search", "scan", "profile"] as const;
 
 export type AppTab = (typeof APP_TAB_ORDER)[number];
 export type TabDirection = -1 | 1;
