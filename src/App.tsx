@@ -797,8 +797,8 @@ export default function App() {
           <SwipeableTabViewport activeTab={activeTab} disabled={showBrowserScanner} onTabChange={handleTabChange} renderTab={renderTabContent} />
         </section>
 
-        <nav className="h-14 shrink-0 border-t border-line bg-white/92 px-4 shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
-          <div className="grid h-full grid-cols-4 place-items-center">
+        <nav className="h-[calc(3.5rem+env(safe-area-inset-bottom))] shrink-0 border-t border-line bg-white/92 px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
+          <div className="grid h-14 grid-cols-4 place-items-center">
             <NavButton
               testId="nav-home"
               active={activeTab === "home"}
@@ -1798,6 +1798,10 @@ function ProfileScreen({
     { label: "Data & Storage", icon: <Database size={21} strokeWidth={1.9} />, danger: false },
   ];
 
+  useEffect(() => {
+    document.querySelector<HTMLElement>(".app-scroll-area")?.scrollTo({ top: 0 });
+  }, [isEditingProfile]);
+
   function openEditProfile() {
     setDraftProfile(profile);
     setIsEditingProfile(true);
@@ -1806,6 +1810,13 @@ function ProfileScreen({
   function closeEditProfile() {
     setDraftProfile(profile);
     setIsEditingProfile(false);
+  }
+
+  function requestCloseEditProfile() {
+    const hasChanges = JSON.stringify(draftProfile) !== JSON.stringify(profile);
+    if (!hasChanges || window.confirm("Discard unsaved changes?")) {
+      closeEditProfile();
+    }
   }
 
   function saveProfileDraft() {
@@ -1824,19 +1835,25 @@ function ProfileScreen({
     setDraftProfile((current) => updater(current));
   }
 
-  if (isEditingProfile) {
-    return (
-      <EditProfileSheet
-        draftProfile={draftProfile}
-        onDraftChange={updateDraftProfile}
-        onClose={closeEditProfile}
-        onSave={saveProfileDraft}
-      />
-    );
-  }
-
   return (
-    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-8">
+    <AnimatePresence initial={false} mode="wait">
+      {isEditingProfile ? (
+        <EditProfileSheet
+          key="edit-profile-sheet"
+          draftProfile={draftProfile}
+          onDraftChange={updateDraftProfile}
+          onClose={requestCloseEditProfile}
+          onSave={saveProfileDraft}
+        />
+      ) : (
+        <motion.div
+          key="profile-overview"
+          className="-mx-5 min-h-full bg-[#F8FAFB] pb-8"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+        >
       <section className="flex flex-col items-center px-5 pt-5 text-center">
         <div className="relative">
           <div className="h-[120px] w-[120px] overflow-hidden rounded-full border-4 border-[#AEEED8] bg-white shadow-[0_16px_34px_rgba(0,105,107,0.10)]">
@@ -1913,7 +1930,9 @@ function ProfileScreen({
           <ProfileSettingsRow label="Delete Account" icon={<Trash2 size={21} strokeWidth={1.9} />} danger />
         </div>
       </section>
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
