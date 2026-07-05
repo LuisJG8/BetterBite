@@ -324,7 +324,7 @@ export default function App() {
     requestAnimationFrame(() => {
       contentScrollRef.current?.scrollTo({ top: 0, left: 0 });
     });
-  }, [activeTab, selectedHistoryItem]);
+  }, [activeTab, profileView, selectedHistoryItem]);
 
   function scrollScanResultIntoView(): void {
     requestAnimationFrame(() => {
