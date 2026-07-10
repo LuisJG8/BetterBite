@@ -344,7 +344,7 @@ function toOnboardingProfile(value: unknown): OnboardingProfile {
   }
 
   const displayName = trimText(value.displayName, 80) || DEFAULT_DISPLAY_NAME;
-  const email = sanitizeEmail(value.email);
+  const email = value.completed ? sanitizeEmail(value.email) : trimText(value.email, 160);
   const mainGoals = sanitizeOptionArray(value.mainGoals, MAIN_GOALS);
   const dietPreferences = sanitizeOptionArray(value.dietPreferences, DIET_PREFERENCES, "no-preference");
   const foodsToAvoid = sanitizeOptionArray(value.foodsToAvoid, FOODS_TO_AVOID, "none");

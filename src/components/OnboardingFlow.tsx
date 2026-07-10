@@ -207,19 +207,21 @@ function QuestionScreen<T extends string>({
               key={option.value}
               type="button"
               aria-pressed={isSelected}
-              className={`relative flex min-h-[50px] w-full items-center gap-3 overflow-hidden rounded-[14px] border px-3.5 py-2.5 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40 ${
+              className={`relative flex min-h-[88px] w-full items-center gap-3 overflow-hidden rounded-[14px] border px-3.5 py-2.5 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40 ${
                 isSelected
                   ? "border-[#009A9D] bg-gradient-to-r from-[#E1FAF4] to-white shadow-[0_12px_28px_rgba(0,105,107,0.15),inset_0_0_0_1px_rgba(0,154,157,0.22)] ring-2 ring-[#00C5C8]/35"
                   : "border-[#D9E4E5] bg-white/70 hover:border-[#00C5C8] active:bg-[#EEF7F8]"
               }`}
               onClick={() => onToggle(option.value)}
             >
-              <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition ${
-                  isSelected ? "scale-105 shadow-[0_8px_18px_rgba(0,105,107,0.16)] ring-2 ring-white" : ""
-                } ${option.tint}`}
-              >
-                {option.icon}
+              <span className="relative h-[68px] w-[82px] shrink-0 overflow-hidden rounded-[11px] bg-[#EEF7F8]">
+                <img className="h-full w-full object-cover" src={option.imageSrc} alt={option.imageAlt} />
+                <span
+                  className={`absolute bottom-1 right-1 flex h-7 w-7 items-center justify-center rounded-full border border-white/80 shadow-[0_5px_12px_rgba(0,0,0,0.16)] ${option.tint}`}
+                  aria-hidden="true"
+                >
+                  {option.icon}
+                </span>
               </span>
               <span className="min-w-0 flex-1">
                 <span className={`block text-[14px] font-black leading-5 ${isSelected ? "text-[#063F41]" : "text-[#1F2629]"}`}>{option.label}</span>

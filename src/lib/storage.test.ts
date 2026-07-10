@@ -217,6 +217,24 @@ describe("storage helpers", () => {
     });
   });
 
+  it("persists an incomplete account email draft without snapping the field back", () => {
+    saveOnboardingProfile({
+      displayName: "Jordan Lee",
+      email: "Jordan@",
+      mainGoals: [],
+      dietPreferences: [],
+      foodsToAvoid: [],
+      swapStrictness: [],
+      completed: false,
+    });
+
+    expect(loadOnboardingProfile()).toMatchObject({
+      displayName: "Jordan Lee",
+      email: "Jordan@",
+      completed: false,
+    });
+  });
+
   it("keeps exclusive onboarding options mutually exclusive", () => {
     saveOnboardingProfile({
       displayName: "Alex Johnson",

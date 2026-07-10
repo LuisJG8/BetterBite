@@ -628,18 +628,16 @@ export default function App() {
   }
 
   function handleAccountNameChange(displayName: string) {
-    setOnboardingProfile((current) => ({
+    updateOnboardingProfile((current) => ({
       ...current,
       displayName,
-      completed: false,
     }));
   }
 
   function handleAccountEmailChange(email: string) {
-    setOnboardingProfile((current) => ({
+    updateOnboardingProfile((current) => ({
       ...current,
       email,
-      completed: false,
     }));
   }
 
