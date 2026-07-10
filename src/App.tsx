@@ -19,6 +19,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPin,
   Pencil,
   RefreshCw,
   Search,
@@ -33,6 +34,7 @@ import burgerKingFries from "./assets/burger-king-fries.jpg";
 import menuPhoto from "./assets/menu-photo.jpg";
 import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
 import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
+import { MapScreen } from "./components/MapScreen";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
 import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./components/onboardingOptions";
 import { SearchScreen } from "./components/SearchScreen";
@@ -751,6 +753,10 @@ export default function App() {
       return <SearchScreen />;
     }
 
+    if (tab === "map") {
+      return <MapScreen />;
+    }
+
     if (profileView === "history") {
       return renderHistoryContent(handleProfileHistoryBack);
     }
@@ -790,15 +796,25 @@ export default function App() {
     );
   }
 
+  const isMapTab = activeTab === "map";
+  const contentClassName = isMapTab
+    ? "min-h-0 flex-1 overflow-hidden bg-[#DDE8E9]"
+    : "app-scroll-area min-h-0 flex-1 px-5 pb-14 pt-safe-offset";
+
   return (
     <main className="min-h-[100dvh] bg-cream text-ink">
       <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
-        <section ref={contentScrollRef} className="app-scroll-area min-h-0 flex-1 px-5 pb-14 pt-safe-offset">
-          <SwipeableTabViewport activeTab={activeTab} disabled={showBrowserScanner} onTabChange={handleTabChange} renderTab={renderTabContent} />
+        <section ref={contentScrollRef} className={contentClassName}>
+          <SwipeableTabViewport
+            activeTab={activeTab}
+            disabled={showBrowserScanner || isMapTab}
+            onTabChange={handleTabChange}
+            renderTab={renderTabContent}
+          />
         </section>
 
         <nav className="h-[calc(3.5rem+env(safe-area-inset-bottom))] shrink-0 border-t border-line bg-white/92 px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
-          <div className="grid h-14 grid-cols-4 place-items-center">
+          <div className="grid h-14 grid-cols-5 place-items-center">
             <NavButton
               testId="nav-home"
               active={activeTab === "home"}
@@ -819,6 +835,13 @@ export default function App() {
               icon={<Camera size={21} />}
               label="Scan"
               onClick={handleScanTabPress}
+            />
+            <NavButton
+              testId="nav-map"
+              active={activeTab === "map"}
+              icon={<MapPin size={21} />}
+              label="Map"
+              onClick={() => handleTabChange("map")}
             />
             <NavButton
               testId="nav-profile"
