@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Pull Request Workflow
+
+When creating a PR with new code changes, make sure the changes go to the `main` branch, and the `main` branch only.
+
 ## Product Direction
 
 The app should help users find the most similar healthier alternative to the food they already want, not just any broadly healthy food.

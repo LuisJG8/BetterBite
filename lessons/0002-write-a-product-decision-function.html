@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 0002: Write a Product Decision Function</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172019;
+      --muted: #5b665d;
+      --paper: #fbfaf5;
+      --panel: #fffef9;
+      --line: #d8ded5;
+      --wash: #eef4ec;
+      --leaf: #2f6b43;
+      --clay: #9d5737;
+      --bad: #8b3a2f;
+      --good: #2f6b43;
+      --code: #233129;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(980px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 42px 0 72px;
+    }
+
+    h1, h2, h3 { margin: 0; line-height: 1.05; letter-spacing: 0; }
+    h1 { max-width: 860px; font-size: clamp(2.4rem, 8vw, 5.2rem); }
+    h2 { margin-top: 44px; font-size: clamp(1.55rem, 4vw, 2.25rem); }
+    h3 {
+      font: 800 0.82rem/1.1 ui-sans-serif, system-ui, sans-serif;
+      text-transform: uppercase;
+      color: var(--leaf);
+      letter-spacing: 0.08em;
+    }
+
+    p, li { color: var(--muted); font-size: 1.05rem; }
+    a { color: var(--leaf); }
+    code, pre, textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .kicker {
+      margin-bottom: 14px;
+      color: var(--clay);
+      font: 800 0.78rem/1 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin: 18px 0 0;
+      color: #344039;
+      font-size: 1.22rem;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 11px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 800;
+    }
+
+    .rule {
+      margin-top: 34px;
+      border-left: 4px solid var(--leaf);
+      padding: 4px 0 4px 18px;
+      max-width: 780px;
+    }
+
+    .rule p { margin: 0; color: var(--ink); font-size: 1.18rem; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .card, .quiz, .lab {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .card p { margin-bottom: 0; }
+
+    pre {
+      overflow-x: auto;
+      margin: 14px 0 0;
+      padding: 14px;
+      border-radius: 8px;
+      background: #f4f0e6;
+      color: var(--code);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    .quiz, .lab { margin-top: 18px; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--wash);
+      color: var(--ink);
+      padding: 10px 13px;
+      font: 800 0.92rem/1 ui-sans-serif, system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--leaf); }
+    button:focus-visible { outline: 3px solid rgba(47, 107, 67, 0.25); outline-offset: 2px; }
+
+    .feedback {
+      min-height: 54px;
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #f6f1e5;
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 0.95rem;
+    }
+
+    .feedback.good { background: #e8f3e8; color: var(--good); }
+    .feedback.bad { background: #f4e7e3; color: var(--bad); }
+
+    textarea {
+      width: 100%;
+      min-height: 250px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      color: var(--code);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    .lab-output {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f6f1e5;
+      padding: 14px;
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      white-space: pre-wrap;
+    }
+
+    .source-list { max-width: 820px; padding-left: 1.2rem; }
+
+    @media (max-width: 780px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: white; }
+      main { width: auto; padding: 24px; }
+      button, textarea { display: none; }
+      .card, .quiz, .lab { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="kicker">Lesson 0002</div>
+    <h1>Write a Product Decision Function</h1>
+    <p class="lede">Your first JavaScript win: turn a BetterBite product rule into code that can be tested. A function takes input, makes a decision, and returns a result.</p>
+    <div class="meta" aria-label="Lesson metadata">
+      <span class="pill">Time: 10 minutes</span>
+      <span class="pill">Skill: functions</span>
+      <span class="pill">Case: similar swaps</span>
+    </div>
+
+    <div class="rule">
+      <p><strong>Core move:</strong> JavaScript lets you make product judgment executable, one small decision at a time.</p>
+    </div>
+
+    <h2>The Tiny Mental Model</h2>
+    <section class="grid" aria-label="Function mental model">
+      <article class="card">
+        <h3>Input</h3>
+        <p>The function receives data. Here, the input is a food object with fields like <code>category</code> and <code>texture</code>.</p>
+      </article>
+      <article class="card">
+        <h3>Decision</h3>
+        <p>The function checks conditions with <code>if</code>. Each condition represents a product rule.</p>
+      </article>
+      <article class="card">
+        <h3>Output</h3>
+        <p>The function sends back a result with <code>return</code>. The caller can render, test, or store that result.</p>
+      </article>
+    </section>
+
+    <h2>Read This Function</h2>
+    <p>Read the code from top to bottom. Do not memorize syntax yet. Ask: what input enters, what decision happens, and what output leaves?</p>
+    <pre><code>function suggestSwap(food) {
+  if (food.category === "soda") {
+    return "lower-sugar soda";
+  }
+
+  if (food.category === "fries" && food.texture === "crispy") {
+    return "cleaner crispy potato snack";
+  }
+
+  return "similar cleaner option";
+}</code></pre>
+
+    <h2>Retrieval Check</h2>
+    <div class="quiz" data-answer="a result">
+      <h3>Question 1</h3>
+      <p>In this function, what does <code>return</code> send back?</p>
+      <div class="buttons">
+        <button type="button" data-choice="a result">a result</button>
+        <button type="button" data-choice="a branch">a branch</button>
+        <button type="button" data-choice="a source">a source</button>
+      </div>
+      <div class="feedback" aria-live="polite">Choose one answer.</div>
+    </div>
+
+    <div class="quiz" data-answer="both true">
+      <h3>Question 2</h3>
+      <p>In <code>food.category === "fries" && food.texture === "crispy"</code>, what does <code>&&</code> require?</p>
+      <div class="buttons">
+        <button type="button" data-choice="both true">both true</button>
+        <button type="button" data-choice="same type">same type</button>
+        <button type="button" data-choice="next item">next item</button>
+      </div>
+      <div class="feedback" aria-live="polite">Choose one answer.</div>
+    </div>
+
+    <h2>Practice Lab</h2>
+    <p>Edit the function so cookies return a cleaner sweet snack. Then run the tests. Keep the swap similar: sweet snack to sweet snack.</p>
+    <div class="lab">
+      <textarea id="code" spellcheck="false">function suggestSwap(food) {
+  if (food.category === "soda") {
+    return "lower-sugar soda";
+  }
+
+  if (food.category === "fries" && food.texture === "crispy") {
+    return "cleaner crispy potato snack";
+  }
+
+  return "similar cleaner option";
+}</textarea>
+      <div class="buttons">
+        <button type="button" id="run-tests">Run tests</button>
+        <button type="button" id="reset-code">Reset</button>
+      </div>
+      <div class="lab-output" id="lab-output" aria-live="polite">Add a cookie rule, then run the tests.</div>
+    </div>
+
+    <h2>What To Read Next</h2>
+    <ul class="source-list">
+      <li>Primary source: <a href="https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting">MDN: Dynamic scripting with JavaScript</a>. Start with variables, arrays, conditionals, functions, and object basics.</li>
+      <li>Reference: <a href="../reference/javascript-core-shapes.html">JavaScript Core Shapes</a>.</li>
+      <li>Previous lesson: <a href="./0001-frame-the-bet-before-the-code.html">Frame the Bet Before the Code</a>.</li>
+    </ul>
+
+    <p>Ask the agent follow-up questions whenever a line feels unclear. Good prompts: "Explain this function one line at a time" or "Give me another BetterBite practice case."</p>
+  </main>
+
+  <script>
+    const starterCode = document.getElementById("code").value;
+    const output = document.getElementById("lab-output");
+
+    document.querySelectorAll(".quiz").forEach((quiz) => {
+      const answer = quiz.dataset.answer;
+      const feedback = quiz.querySelector(".feedback");
+      quiz.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => {
+          const isCorrect = button.dataset.choice === answer;
+          feedback.className = `feedback ${isCorrect ? "good" : "bad"}`;
+          feedback.textContent = isCorrect
+            ? "Correct. You retrieved the key idea from memory."
+            : "Not quite. Re-read the nearby code, then try again.";
+        });
+      });
+    });
+
+    document.getElementById("reset-code").addEventListener("click", () => {
+      document.getElementById("code").value = starterCode;
+      output.textContent = "Add a cookie rule, then run the tests.";
+    });
+
+    document.getElementById("run-tests").addEventListener("click", () => {
+      const code = document.getElementById("code").value;
+      const tests = [
+        {
+          name: "soda stays a drink",
+          food: { category: "soda", texture: "bubbly" },
+          expected: "lower-sugar soda"
+        },
+        {
+          name: "fries stay crispy potato",
+          food: { category: "fries", texture: "crispy" },
+          expected: "cleaner crispy potato snack"
+        },
+        {
+          name: "cookies stay sweet snack",
+          food: { category: "cookies", texture: "chewy" },
+          expected: "cleaner sweet snack"
+        }
+      ];
+
+      try {
+        const suggestSwap = new Function(`${code}; return suggestSwap;`)();
+        if (typeof suggestSwap !== "function") {
+          throw new Error("The code must define a function named suggestSwap.");
+        }
+
+        const results = tests.map((test) => {
+          const actual = suggestSwap(test.food);
+          const passed = actual === test.expected;
+          return { ...test, actual, passed };
+        });
+
+        const passedCount = results.filter((result) => result.passed).length;
+        const lines = results.map((result) => {
+          const mark = result.passed ? "PASS" : "FIX";
+          return `${mark}: ${result.name}\nexpected: ${result.expected}\nactual: ${result.actual}`;
+        });
+
+        output.textContent = `${passedCount}/${tests.length} tests passed\n\n${lines.join("\n\n")}`;
+      } catch (error) {
+        output.textContent = `JavaScript error:\n${error.message}`;
+      }
+    });
+  </script>
+</body>
+</html>

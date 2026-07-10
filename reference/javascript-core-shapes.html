@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JavaScript Core Shapes</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172019;
+      --muted: #58635d;
+      --paper: #fbfaf5;
+      --panel: #fffef9;
+      --line: #d8ded5;
+      --wash: #eef4ec;
+      --leaf: #2f6b43;
+      --clay: #9d5737;
+      --code: #233129;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      line-height: 1.52;
+    }
+
+    main {
+      width: min(980px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 48px 0 68px;
+    }
+
+    h1, h2, h3 { margin: 0; line-height: 1.05; letter-spacing: 0; }
+    h1 { max-width: 820px; font-size: clamp(2.35rem, 7vw, 5rem); }
+    h2 { margin-top: 42px; font-size: clamp(1.45rem, 3vw, 2.05rem); }
+    h3 {
+      font: 800 0.82rem/1.1 ui-sans-serif, system-ui, sans-serif;
+      color: var(--leaf);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    p, li { color: var(--muted); font-size: 1.04rem; }
+    a { color: var(--leaf); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .lede {
+      max-width: 760px;
+      margin: 18px 0 0;
+      color: #344039;
+      font-size: 1.2rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .card p { margin-bottom: 0; }
+
+    pre {
+      overflow-x: auto;
+      margin: 12px 0 0;
+      padding: 14px;
+      border-radius: 8px;
+      background: #f4f0e6;
+      color: var(--code);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    .rule {
+      margin-top: 30px;
+      border-left: 4px solid var(--clay);
+      padding: 4px 0 4px 18px;
+    }
+
+    .rule p { margin: 0; color: var(--ink); font-size: 1.16rem; }
+
+    .table {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 0.85fr 1.35fr 1.15fr;
+      border-top: 1px solid var(--line);
+    }
+
+    .row:first-child {
+      border-top: 0;
+      background: var(--wash);
+      font: 800 0.86rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    }
+
+    .cell { padding: 12px 14px; color: var(--muted); }
+    .row:first-child .cell { color: var(--ink); }
+
+    @media (max-width: 760px) {
+      .grid, .row { grid-template-columns: 1fr; }
+      .row:first-child { display: none; }
+      .cell { padding: 10px 14px; }
+    }
+
+    @media print {
+      body { background: white; }
+      main { width: auto; padding: 24px; }
+      .card, .table { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>JavaScript Core Shapes</h1>
+    <p class="lede">Most product code is built from a few repeatable shapes: values, objects, arrays, functions, conditionals, and returns. Learn to see those shapes before worrying about every language feature.</p>
+
+    <section class="grid" aria-label="Core JavaScript shapes">
+      <article class="card">
+        <h3>Value</h3>
+        <p>A single piece of information.</p>
+        <pre><code>const craving = "fries";
+const sugarGrams = 39;
+const isDrink = true;</code></pre>
+      </article>
+      <article class="card">
+        <h3>Object</h3>
+        <p>A named bundle of related values.</p>
+        <pre><code>const food = {
+  name: "Burger King fries",
+  category: "salty snack",
+  texture: "crispy"
+};</code></pre>
+      </article>
+      <article class="card">
+        <h3>Array</h3>
+        <p>An ordered list of values or objects.</p>
+        <pre><code>const swaps = [
+  "Boulder Canyon chips",
+  "air-fried potato wedges"
+];</code></pre>
+      </article>
+      <article class="card">
+        <h3>Function</h3>
+        <p>A reusable decision or action.</p>
+        <pre><code>function explainSwap(food, swap) {
+  return `${swap} keeps the ${food.texture} experience.`;
+}</code></pre>
+      </article>
+    </section>
+
+    <h2>Decision Shape</h2>
+    <div class="table" role="table" aria-label="JavaScript decision syntax">
+      <div class="row" role="row">
+        <div class="cell" role="columnheader">Shape</div>
+        <div class="cell" role="columnheader">Use it when</div>
+        <div class="cell" role="columnheader">Tiny example</div>
+      </div>
+      <div class="row" role="row">
+        <div class="cell" role="cell"><code>if</code></div>
+        <div class="cell" role="cell">The code must branch based on a condition.</div>
+        <div class="cell" role="cell"><code>if (food.category === "drink")</code></div>
+      </div>
+      <div class="row" role="row">
+        <div class="cell" role="cell"><code>return</code></div>
+        <div class="cell" role="cell">A function has decided its result.</div>
+        <div class="cell" role="cell"><code>return "sparkling water";</code></div>
+      </div>
+      <div class="row" role="row">
+        <div class="cell" role="cell"><code>===</code></div>
+        <div class="cell" role="cell">You want to compare values exactly.</div>
+        <div class="cell" role="cell"><code>food.texture === "crispy"</code></div>
+      </div>
+      <div class="row" role="row">
+        <div class="cell" role="cell"><code>&&</code></div>
+        <div class="cell" role="cell">Both conditions must be true.</div>
+        <div class="cell" role="cell"><code>salty && crispy</code></div>
+      </div>
+    </div>
+
+    <div class="rule">
+      <p><strong>BetterBite rule:</strong> a JavaScript function is often a product decision made executable.</p>
+    </div>
+
+    <p>Related lesson: <a href="../lessons/0002-write-a-product-decision-function.html">Write a Product Decision Function</a>. Primary source: <a href="https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting">MDN JavaScript learning module</a>.</p>
+  </main>
+</body>
+</html>
