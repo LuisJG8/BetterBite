@@ -3725,7 +3725,12 @@ function getBrowserCameraBlockedMessage(): string {
 }
 
 function getFoodRecognitionRetryMessage(error: unknown): string {
-  const message = error instanceof Error && error.message ? error.message : "Food recognition is unavailable.";
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error && error.message
+        ? error.message
+        : "Food recognition is unavailable.";
 
   return `${message} Keeping the camera on and retrying.`;
 }

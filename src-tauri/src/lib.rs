@@ -339,7 +339,9 @@ fn canonical_whole_food_label(label: &str) -> Option<String> {
         .unwrap_or(label)
         .trim()
         .to_ascii_lowercase()
-        .replace(' ', "_");
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("_");
     let canonical = match first_label.as_str() {
         "acorn_squash" | "butternut_squash" | "spaghetti_squash" => "squash",
         "artichoke" => "artichoke",
@@ -873,6 +875,14 @@ mod tests {
         assert_eq!(results[0].label, "banana");
         assert_eq!(results[0].model, FOOD_RECOGNITION_WHOLE_FOOD_MODEL);
         assert_eq!(results[1].label, "apple");
+    }
+
+    #[test]
+    fn normalizes_arbitrary_whitespace_in_whole_food_labels() {
+        assert_eq!(
+            canonical_whole_food_label("bell\t  pepper"),
+            Some("bell pepper".to_string())
+        );
     }
 
     #[test]

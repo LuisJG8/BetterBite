@@ -40,7 +40,20 @@ async function createZxingBarcodeDetector(): Promise<BrowserBarcodeDetector> {
       }
 
       try {
-        const result = await reader.scanOneResult(source, false, false, false);
+        const canvas = document.createElement("canvas");
+        canvas.width = source.videoWidth || source.clientWidth || 0;
+        canvas.height = source.videoHeight || source.clientHeight || 0;
+        if (canvas.width === 0 || canvas.height === 0) {
+          return [];
+        }
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+          return [];
+        }
+
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        const result = await reader.decodeFromCanvas(canvas);
         const rawValue = result.getText().trim();
 
         return rawValue ? [{ rawValue }] : [];
