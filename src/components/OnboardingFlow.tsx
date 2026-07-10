@@ -8,20 +8,18 @@ import {
   HeartPulse,
   LockKeyhole,
   Mail,
-  Play,
   ShieldCheck,
   Sparkles,
+  User,
   Zap,
 } from "lucide-react";
 import { FormEvent, type ReactNode, useEffect, useState } from "react";
-import boulderCanyonChips from "../assets/boulder-canyon-chips.avif";
-import burgerKingFries from "../assets/burger-king-fries.jpg";
 import appLogo from "../assets/healthier-food-logo-option-07.png";
 import welcomeFoodHero from "../assets/onboarding-food-hero.png";
 import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./onboardingOptions";
 import type { DietPreference, FoodAvoidance, MainGoal, OnboardingProfile } from "../types";
 
-export type OnboardingStep = "welcome" | "benefits" | "scan-swap" | "main-goal" | "diet" | "avoid" | "account" | "app";
+export type OnboardingStep = "welcome" | "benefits" | "main-goal" | "diet" | "avoid" | "account" | "app";
 
 type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
 
@@ -29,7 +27,10 @@ interface OnboardingFlowProps {
   step: VisibleOnboardingStep;
   profile: OnboardingProfile;
   onBack: () => void;
-  onContinue: (accountEmail?: string) => void;
+  onContinue: () => void;
+  onSkipOptionalQuestion: () => void;
+  onAccountNameChange: (name: string) => void;
+  onAccountEmailChange: (email: string) => void;
   onMainGoalToggle: (goal: MainGoal) => void;
   onDietPreferenceToggle: (preference: DietPreference) => void;
   onFoodAvoidanceToggle: (avoidance: FoodAvoidance) => void;
@@ -42,12 +43,16 @@ const BENEFITS = [
   { label: "Stronger immune system", icon: <HeartPulse size={22} strokeWidth={2.2} /> },
   { label: "Live longer", icon: <Sparkles size={22} strokeWidth={2.2} /> },
 ];
+const ONBOARDING_PROGRESS_STEPS: VisibleOnboardingStep[] = ["benefits", "main-goal", "diet", "avoid", "account"];
 
 export function OnboardingFlow({
   step,
   profile,
   onBack,
   onContinue,
+  onSkipOptionalQuestion,
+  onAccountNameChange,
+  onAccountEmailChange,
   onMainGoalToggle,
   onDietPreferenceToggle,
   onFoodAvoidanceToggle,
@@ -61,15 +66,16 @@ export function OnboardingFlow({
       <div className="mx-auto flex h-[100dvh] w-full max-w-[430px] flex-col overflow-hidden bg-[#F7FAFB] shadow-[0_24px_70px_rgba(0,105,107,0.12)] md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
         {step === "welcome" && <WelcomeScreen onContinue={onContinue} />}
         {step === "benefits" && <BenefitsScreen onBack={onBack} onContinue={onContinue} />}
-        {step === "scan-swap" && <ScanSwapScreen onBack={onBack} onContinue={onContinue} />}
         {step === "main-goal" && (
           <QuestionScreen
             title="What's your main goal?"
             subtitle="Choose all that apply."
             options={MAIN_GOAL_OPTIONS}
             values={profile.mainGoals}
+            progressStep="main-goal"
             onBack={onBack}
             onContinue={onContinue}
+            onSkip={onSkipOptionalQuestion}
             onToggle={onMainGoalToggle}
           />
         )}
@@ -79,8 +85,10 @@ export function OnboardingFlow({
             subtitle="Choose all that apply."
             options={DIET_OPTIONS}
             values={profile.dietPreferences}
+            progressStep="diet"
             onBack={onBack}
             onContinue={onContinue}
+            onSkip={onSkipOptionalQuestion}
             onToggle={onDietPreferenceToggle}
           />
         )}
@@ -90,12 +98,22 @@ export function OnboardingFlow({
             subtitle="Choose all that apply."
             options={FOOD_AVOIDANCE_OPTIONS}
             values={profile.foodsToAvoid}
+            progressStep="avoid"
             onBack={onBack}
             onContinue={onContinue}
+            onSkip={onSkipOptionalQuestion}
             onToggle={onFoodAvoidanceToggle}
           />
         )}
-        {step === "account" && <AccountScreen onBack={onBack} onComplete={onContinue} />}
+        {step === "account" && (
+          <AccountScreen
+            profile={profile}
+            onBack={onBack}
+            onComplete={onContinue}
+            onNameChange={onAccountNameChange}
+            onEmailChange={onAccountEmailChange}
+          />
+        )}
       </div>
     </main>
   );
@@ -103,8 +121,8 @@ export function OnboardingFlow({
 
 function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
   return (
-    <section className="flex h-full min-h-0 flex-col px-5 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-[calc(env(safe-area-inset-top)+42px)]">
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+    <section className="flex h-full min-h-0 flex-col px-5 pb-[calc(env(safe-area-inset-bottom)+65px)] pt-[calc(env(safe-area-inset-top)+42px)]">
+      <div className="flex min-h-0 flex-1 -translate-y-[35px] flex-col items-center justify-center">
         <img src={appLogo} alt="BetterBite" className="h-[62px] w-[62px] object-contain" />
         <h1 className="mt-3 text-center text-[22px] font-black leading-none text-[#00696B]">BetterBite</h1>
 
@@ -112,10 +130,10 @@ function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
           <img src={welcomeFoodHero} alt="Assorted foods and healthier swaps" className="h-full w-full object-cover" />
         </div>
 
-        <h2 className="mt-8 max-w-[330px] text-center text-[26px] font-black leading-[1.06] text-[#063F41]">
+        <h2 className="mt-8 max-w-[330px] text-left text-[26px] font-black leading-[1.06] text-[#063F41]">
           Find healthier alternatives to the foods you already love.
         </h2>
-        <p className="mt-3 max-w-[300px] text-center text-[15px] font-semibold leading-6 text-[#566164]">
+        <p className="mt-3 max-w-[330px] text-left text-[15px] font-semibold leading-6 text-[#566164]">
           Similar taste. Better ingredients. Smarter swaps.
         </p>
       </div>
@@ -127,7 +145,7 @@ function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
 
 function BenefitsScreen({ onBack, onContinue }: { onBack: () => void; onContinue: () => void }) {
   return (
-    <ScreenFrame onBack={onBack} footer={<PrimaryButton label="Next" onClick={onContinue} />}>
+    <ScreenFrame onBack={onBack} footer={<PrimaryButton label="Next" onClick={onContinue} />} progressStep="benefits">
       <div className="pt-4 text-center">
         <h1 className="text-[25px] font-black leading-[1.08] text-[#063F41]">Why it matters</h1>
         <p className="mt-2 text-[15px] font-semibold leading-5 text-[#566164]">Better choices. Better you.</p>
@@ -147,76 +165,35 @@ function BenefitsScreen({ onBack, onContinue }: { onBack: () => void; onContinue
   );
 }
 
-function ScanSwapScreen({ onBack, onContinue }: { onBack: () => void; onContinue: () => void }) {
-  return (
-    <ScreenFrame onBack={onBack} footer={<PrimaryButton label="Next" onClick={onContinue} />}>
-      <div className="pt-2 text-center">
-        <h1 className="mx-auto max-w-[310px] text-[24px] font-black leading-[1.08] text-[#063F41]">Scan. We analyze. You swap.</h1>
-        <p className="mx-auto mt-2 max-w-[300px] text-[14px] font-semibold leading-5 text-[#566164]">
-          See how BetterBite finds a similar, healthier alternative.
-        </p>
-      </div>
-
-      <div className="mt-6 overflow-hidden rounded-[24px] border border-[#7EDFE0] bg-gradient-to-br from-[#B6F4E4] to-[#16CBCD] p-5 text-white shadow-[0_18px_38px_rgba(0,128,128,0.16)]">
-        <div className="flex aspect-video items-center justify-center rounded-[18px] bg-white/25">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#00696B] shadow-[0_12px_24px_rgba(0,105,107,0.14)]">
-            <Play size={30} fill="currentColor" strokeWidth={0} />
-          </span>
-        </div>
-        <p className="mt-3 text-center text-[13px] font-black text-white">( Demo video placeholder )</p>
-      </div>
-
-      <div className="mt-4 grid grid-cols-[1fr_38px_1fr] items-stretch gap-2">
-        <SwapPreviewCard
-          eyebrow="You scanned"
-          title="Burger King Fries"
-          image={burgerKingFries}
-          score="3.4/10"
-          scoreTone="bg-[#C93C30]"
-        />
-        <div className="flex items-center justify-center">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_22px_rgba(0,105,107,0.24)]">
-            <ArrowRight size={22} strokeWidth={2.8} />
-          </span>
-        </div>
-        <SwapPreviewCard
-          eyebrow="Better swap"
-          title="Boulder Canyon Kettle Chips"
-          image={boulderCanyonChips}
-          score="7.9/10"
-          scoreTone="bg-[#00696B]"
-        />
-      </div>
-      <p className="mt-4 rounded-[8px] bg-[#DDF7EF] px-4 py-3 text-center text-[13px] font-bold leading-5 text-[#00696B]">
-        Same salty potato craving, cleaner ingredients.
-      </p>
-    </ScreenFrame>
-  );
-}
-
 function QuestionScreen<T extends string>({
   title,
   subtitle,
   options,
   values,
+  progressStep,
   onBack,
   onContinue,
+  onSkip,
   onToggle,
 }: {
   title: string;
   subtitle: string;
   options: Array<ChoiceOption<T>>;
   values: T[];
+  progressStep: VisibleOnboardingStep;
   onBack: () => void;
   onContinue: () => void;
+  onSkip: () => void;
   onToggle: (value: T) => void;
 }) {
   return (
     <ScreenFrame
       onBack={onBack}
+      headerAction={<SkipButton onClick={onSkip} />}
       footer={<PrimaryButton label="Next" disabled={values.length === 0} onClick={onContinue} />}
+      progressStep={progressStep}
     >
-      <div className="pt-2 text-center">
+      <div className="pt-[72px] text-center">
         <h1 className="mx-auto max-w-[330px] text-[22px] font-black leading-[1.12] text-[#063F41]">{title}</h1>
         <p className="mt-2 text-[14px] font-semibold leading-5 text-[#566164]">{subtitle}</p>
       </div>
@@ -230,19 +207,21 @@ function QuestionScreen<T extends string>({
               key={option.value}
               type="button"
               aria-pressed={isSelected}
-              className={`relative flex min-h-[50px] w-full items-center gap-3 overflow-hidden rounded-[14px] border px-3.5 py-2.5 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40 ${
+              className={`relative flex min-h-[88px] w-full items-center gap-3 overflow-hidden rounded-[14px] border px-3.5 py-2.5 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40 ${
                 isSelected
                   ? "border-[#009A9D] bg-gradient-to-r from-[#E1FAF4] to-white shadow-[0_12px_28px_rgba(0,105,107,0.15),inset_0_0_0_1px_rgba(0,154,157,0.22)] ring-2 ring-[#00C5C8]/35"
                   : "border-[#D9E4E5] bg-white/70 hover:border-[#00C5C8] active:bg-[#EEF7F8]"
               }`}
               onClick={() => onToggle(option.value)}
             >
-              <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition ${
-                  isSelected ? "scale-105 shadow-[0_8px_18px_rgba(0,105,107,0.16)] ring-2 ring-white" : ""
-                } ${option.tint}`}
-              >
-                {option.icon}
+              <span className="relative h-[68px] w-[82px] shrink-0 overflow-hidden rounded-[11px] bg-[#EEF7F8]">
+                <img className="h-full w-full object-cover" src={option.imageSrc} alt={option.imageAlt} />
+                <span
+                  className={`absolute bottom-1 right-1 flex h-7 w-7 items-center justify-center rounded-full border border-white/80 shadow-[0_5px_12px_rgba(0,0,0,0.16)] ${option.tint}`}
+                  aria-hidden="true"
+                >
+                  {option.icon}
+                </span>
               </span>
               <span className="min-w-0 flex-1">
                 <span className={`block text-[14px] font-black leading-5 ${isSelected ? "text-[#063F41]" : "text-[#1F2629]"}`}>{option.label}</span>
@@ -268,90 +247,113 @@ function QuestionScreen<T extends string>({
   );
 }
 
-function AccountScreen({ onBack, onComplete }: { onBack: () => void; onComplete: (accountEmail?: string) => void }) {
-  const [email, setEmail] = useState("");
+function AccountScreen({
+  profile,
+  onBack,
+  onComplete,
+  onNameChange,
+  onEmailChange,
+}: {
+  profile: OnboardingProfile;
+  onBack: () => void;
+  onComplete: () => void;
+  onNameChange: (name: string) => void;
+  onEmailChange: (email: string) => void;
+}) {
   const [showPassword, setShowPassword] = useState(false);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onComplete(email);
+    onComplete();
   }
 
   return (
-    <ScreenFrame onBack={onBack} footer={null}>
-      <div className="pt-1 text-center">
-        <h1 className="text-[24px] font-black leading-[1.1] text-[#063F41]">Create your account</h1>
-        <p className="mx-auto mt-2 max-w-[300px] text-[14px] font-semibold leading-5 text-[#566164]">
-          Save your preferences and scans across devices.
-        </p>
+    <ScreenFrame onBack={onBack} footer={null} progressStep="account">
+      <div className="flex min-h-full flex-col justify-center py-4">
+        <div className="text-center">
+          <h1 className="text-[24px] font-black leading-[1.1] text-[#063F41]">Create your account</h1>
+          <p className="mx-auto mt-2 max-w-[300px] text-[14px] font-semibold leading-5 text-[#566164]">
+            Save your preferences and scans across devices.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-7 space-y-3">
+          <label className="block">
+            <span className="sr-only">Full Name</span>
+            <span className="flex h-[56px] items-center gap-3 rounded-[14px] border border-[#D9E4E5] bg-white px-4 text-[#667080]">
+              <User size={20} strokeWidth={2.2} className="shrink-0 text-[#657A7C]" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none placeholder:text-[#9BA5A7]"
+                type="text"
+                name="name"
+                placeholder="Full Name"
+                autoComplete="name"
+                maxLength={80}
+                required
+                value={profile.displayName}
+                onChange={(event) => onNameChange(event.target.value)}
+              />
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="sr-only">Email address</span>
+            <span className="flex h-[56px] items-center gap-3 rounded-[14px] border border-[#D9E4E5] bg-white px-4 text-[#667080]">
+              <Mail size={20} strokeWidth={2.2} className="shrink-0 text-[#657A7C]" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none placeholder:text-[#9BA5A7]"
+                type="email"
+                name="email"
+                placeholder="Email address"
+                autoComplete="email"
+                required
+                value={profile.email}
+                onChange={(event) => onEmailChange(event.target.value)}
+              />
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="sr-only">Password</span>
+            <span className="flex h-[56px] items-center gap-3 rounded-[14px] border border-[#D9E4E5] bg-white px-4 text-[#667080]">
+              <LockKeyhole size={20} strokeWidth={2.2} className="shrink-0 text-[#657A7C]" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none placeholder:text-[#9BA5A7]"
+                type={showPassword ? "text" : "password"}
+                name="password"
+                placeholder="Password"
+                autoComplete="new-password"
+                required
+              />
+              <button
+                type="button"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#657A7C] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={21} strokeWidth={2.2} /> : <Eye size={21} strokeWidth={2.2} />}
+              </button>
+            </span>
+          </label>
+
+          <PrimaryButton label="Create account" type="submit" />
+        </form>
+
+        <div className="my-5 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-[13px] font-extrabold text-[#748284]">
+          <span className="h-px bg-[#DDE6E7]" />
+          <span>or</span>
+          <span className="h-px bg-[#DDE6E7]" />
+        </div>
+
+        <button
+          type="button"
+          className="flex h-[54px] w-full items-center justify-center gap-3 rounded-[14px] border border-[#CDDCDD] bg-white text-[15px] font-extrabold text-[#111517] transition hover:border-[#00C5C8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
+          onClick={onComplete}
+        >
+          <span className="text-[22px] font-black text-[#4285F4]">G</span>
+          Continue with Google
+        </button>
       </div>
-
-      <form onSubmit={handleSubmit} className="mt-7 space-y-3">
-        <label className="block">
-          <span className="sr-only">Email address</span>
-          <span className="flex h-[56px] items-center gap-3 rounded-[14px] border border-[#D9E4E5] bg-white px-4 text-[#667080]">
-            <Mail size={20} strokeWidth={2.2} className="shrink-0 text-[#657A7C]" />
-            <input
-              className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none placeholder:text-[#9BA5A7]"
-              type="email"
-              name="email"
-              placeholder="Email address"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </span>
-        </label>
-
-        <label className="block">
-          <span className="sr-only">Password</span>
-          <span className="flex h-[56px] items-center gap-3 rounded-[14px] border border-[#D9E4E5] bg-white px-4 text-[#667080]">
-            <LockKeyhole size={20} strokeWidth={2.2} className="shrink-0 text-[#657A7C]" />
-            <input
-              className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none placeholder:text-[#9BA5A7]"
-              type={showPassword ? "text" : "password"}
-              name="password"
-              placeholder="Password"
-              autoComplete="new-password"
-              required
-            />
-            <button
-              type="button"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#657A7C] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
-              onClick={() => setShowPassword((visible) => !visible)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? <EyeOff size={21} strokeWidth={2.2} /> : <Eye size={21} strokeWidth={2.2} />}
-            </button>
-          </span>
-        </label>
-
-        <PrimaryButton label="Create account" type="submit" />
-      </form>
-
-      <div className="my-5 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-[13px] font-extrabold text-[#748284]">
-        <span className="h-px bg-[#DDE6E7]" />
-        <span>or</span>
-        <span className="h-px bg-[#DDE6E7]" />
-      </div>
-
-      <button
-        type="button"
-        className="flex h-[54px] w-full items-center justify-center gap-3 rounded-[14px] border border-[#CDDCDD] bg-white text-[15px] font-extrabold text-[#111517] transition hover:border-[#00C5C8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
-        onClick={() => onComplete()}
-      >
-        <span className="text-[22px] font-black text-[#4285F4]">G</span>
-        Continue with Google
-      </button>
-
-      <button
-        type="button"
-        className="mt-5 flex h-10 w-full items-center justify-center rounded-full text-[14px] font-black text-[#00696B] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
-        onClick={() => onComplete()}
-      >
-        Continue to app
-      </button>
     </ScreenFrame>
   );
 }
@@ -360,53 +362,73 @@ function ScreenFrame({
   onBack,
   children,
   footer,
+  progressStep,
+  headerAction,
 }: {
   onBack: () => void;
   children: ReactNode;
   footer: ReactNode;
+  progressStep: VisibleOnboardingStep;
+  headerAction?: ReactNode;
 }) {
   return (
     <section className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 px-5 pb-[5px] pt-[calc(env(safe-area-inset-top)+14px)]">
-        <div className="flex h-10 items-center">
+        <div className="flex h-10 items-center justify-between">
           <button
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[#063F41] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#E7EEF0] bg-white text-[#063F41] shadow-[0_8px_18px_rgba(0,0,0,0.06)] transition hover:bg-[#EEF7F8] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
             aria-label="Go back"
             onClick={onBack}
           >
             <ArrowLeft size={22} strokeWidth={2.4} />
           </button>
+          {headerAction}
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-2">{children}</div>
-      <footer className="shrink-0 px-5 pb-[calc(env(safe-area-inset-bottom)+18px)] pt-3">{footer}</footer>
+      <footer className="shrink-0 px-5 pb-[calc(env(safe-area-inset-bottom)+18px)] pt-3">
+        {footer}
+        <OnboardingProgress step={progressStep} />
+      </footer>
     </section>
   );
 }
 
-function SwapPreviewCard({
-  eyebrow,
-  title,
-  image,
-  score,
-  scoreTone,
-}: {
-  eyebrow: string;
-  title: string;
-  image: string;
-  score: string;
-  scoreTone: string;
-}) {
+function SkipButton({ onClick }: { onClick: () => void }) {
   return (
-    <div className="min-w-0 rounded-[16px] border border-[#D9E4E5] bg-white p-2.5 shadow-[0_10px_22px_rgba(0,105,107,0.07)]">
-      <p className="text-center text-[11px] font-extrabold leading-4 text-[#566164]">{eyebrow}</p>
-      <p className="mt-1 min-h-[34px] text-center text-[12px] font-black leading-[1.18] text-[#1F2629]">{title}</p>
-      <div className="relative mt-2 flex h-[82px] items-center justify-center overflow-hidden rounded-[12px] bg-[#F7FAFB]">
-        <img src={image} alt="" className="h-full w-full object-cover" />
-        <span className={`absolute bottom-1.5 right-1.5 rounded-full px-2 py-1 text-[11px] font-black text-white ${scoreTone}`}>{score}</span>
-      </div>
+    <button
+      type="button"
+      className="flex h-[35px] items-center gap-2 rounded-full border border-[#E7EEF0] bg-white px-4 text-[16px] font-semibold text-[#111517] shadow-[0_8px_18px_rgba(0,0,0,0.06)] transition hover:bg-[#EEF7F8] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/40"
+      onClick={onClick}
+    >
+      <span>Skip</span>
+      <ArrowRight size={20} strokeWidth={2.4} />
+    </button>
+  );
+}
+
+function OnboardingProgress({ step }: { step: VisibleOnboardingStep }) {
+  const currentIndex = ONBOARDING_PROGRESS_STEPS.indexOf(step);
+  const progressValue = currentIndex + 1;
+
+  return (
+    <div
+      className="mt-8 flex h-6 items-center justify-center gap-2"
+      role="progressbar"
+      aria-label="Onboarding progress"
+      aria-valuemin={1}
+      aria-valuemax={ONBOARDING_PROGRESS_STEPS.length}
+      aria-valuenow={progressValue}
+    >
+      {ONBOARDING_PROGRESS_STEPS.map((progressStep, index) => (
+        <span
+          key={progressStep}
+          className={`h-[7px] w-[7px] rounded-full transition-colors ${index === currentIndex ? "bg-[#063F41]" : "bg-[#D8DDDE]"}`}
+          aria-hidden="true"
+        />
+      ))}
     </div>
   );
 }
