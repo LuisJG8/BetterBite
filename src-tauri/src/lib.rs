@@ -1,6 +1,8 @@
+use base64::{engine::general_purpose, Engine as _};
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::env;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -15,7 +17,14 @@ const PRODUCT_NUTRIMENT_LIMIT: usize = 120;
 const PRODUCT_NUTRIMENT_INSPECT_LIMIT: usize = PRODUCT_NUTRIMENT_LIMIT * 2;
 const PRODUCT_NUTRIMENT_KEY_LIMIT: usize = 80;
 const PRODUCT_NUTRIMENT_TEXT_LIMIT: usize = 200;
+const FOOD_RECOGNITION_MODEL: &str = "nateraw/food";
+const FOOD_RECOGNITION_WHOLE_FOOD_MODEL: &str = "google/vit-base-patch16-224";
+const FOOD_RECOGNITION_MIN_SCORE: f64 = 0.7;
+const HUGGING_FACE_MODEL_URL: &str = "https://router.huggingface.co/hf-inference/models/";
+const HUGGING_FACE_MAX_IMAGE_BYTES: usize = 1_500_000;
+const HUGGING_FACE_MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 static OPEN_FOOD_FACTS_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+static HUGGING_FACE_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 struct OpenFoodFactsResponse {
@@ -68,6 +77,14 @@ struct ProductDto {
     source: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FoodRecognitionDto {
+    label: String,
+    score: f64,
+    model: &'static str,
+}
+
 #[tauri::command]
 async fn fetch_product_by_barcode(barcode: String) -> Result<ProductDto, String> {
     let normalized = validate_and_normalize_barcode(&barcode)?;
@@ -92,6 +109,73 @@ async fn fetch_product_by_barcode(barcode: String) -> Result<ProductDto, String>
     let payload = parse_open_food_facts_response(&body)?;
 
     normalize_response(payload, &normalized)
+}
+
+#[tauri::command]
+async fn classify_food_image(image_data_url: String) -> Result<Vec<FoodRecognitionDto>, String> {
+    let (content_type, image_bytes) = parse_image_data_url(&image_data_url)?;
+    let primary = classify_image_with_hugging_face_model(
+        FOOD_RECOGNITION_MODEL,
+        content_type,
+        image_bytes.clone(),
+    )
+    .await?;
+
+    if primary
+        .iter()
+        .any(|result| result.score >= FOOD_RECOGNITION_MIN_SCORE)
+    {
+        return Ok(primary);
+    }
+
+    let fallback = match classify_image_with_hugging_face_model(
+        FOOD_RECOGNITION_WHOLE_FOOD_MODEL,
+        content_type,
+        image_bytes,
+    )
+    .await
+    {
+        Ok(results) => results
+            .into_iter()
+            .filter_map(normalize_whole_food_result)
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+
+    Ok(if fallback.is_empty() {
+        primary
+    } else {
+        fallback
+    })
+}
+
+async fn classify_image_with_hugging_face_model(
+    model: &'static str,
+    content_type: &'static str,
+    image_bytes: Vec<u8>,
+) -> Result<Vec<FoodRecognitionDto>, String> {
+    let mut request = hugging_face_client()?
+        .post(format!("{HUGGING_FACE_MODEL_URL}{model}"))
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, content_type)
+        .body(image_bytes);
+
+    if let Some(token) = hugging_face_token() {
+        request = request.bearer_auth(token);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Hugging Face food recognition: {error}"))?;
+    let status = response.status();
+    let body = read_bounded_hugging_face_body(response).await?;
+
+    if !status.is_success() {
+        return Err(hugging_face_error_message(&body, status));
+    }
+
+    parse_hugging_face_food_response(&body, model)
 }
 
 async fn read_bounded_response_body(response: reqwest::Response) -> Result<Vec<u8>, String> {
@@ -141,6 +225,27 @@ fn open_food_facts_client() -> Result<&'static reqwest::Client, String> {
         .map_err(Clone::clone)
 }
 
+fn hugging_face_client() -> Result<&'static reqwest::Client, String> {
+    HUGGING_FACE_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent("BetterBite/0.1.0 (food recognition; model: nateraw/food)")
+                .timeout(Duration::from_secs(20))
+                .build()
+                .map_err(|error| format!("Could not initialize Hugging Face client: {error}"))
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn hugging_face_token() -> Option<String> {
+    env::var("HUGGING_FACE_API_TOKEN")
+        .or_else(|_| env::var("HF_TOKEN"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn parse_open_food_facts_response(body: &[u8]) -> Result<OpenFoodFactsResponse, String> {
     if body.len() as u64 > OPEN_FOOD_FACTS_MAX_RESPONSE_BYTES {
         return Err("Open Food Facts response was too large.".to_string());
@@ -148,6 +253,170 @@ fn parse_open_food_facts_response(body: &[u8]) -> Result<OpenFoodFactsResponse, 
 
     serde_json::from_slice::<OpenFoodFactsResponse>(body)
         .map_err(|error| format!("Could not read Open Food Facts response: {error}"))
+}
+
+async fn read_bounded_hugging_face_body(response: reqwest::Response) -> Result<Vec<u8>, String> {
+    let content_length = response.content_length().unwrap_or(0);
+    if content_length > HUGGING_FACE_MAX_RESPONSE_BYTES {
+        return Err("Food recognition response was too large.".to_string());
+    }
+
+    let mut body = Vec::with_capacity(content_length as usize);
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = stream
+        .try_next()
+        .await
+        .map_err(|error| format!("Could not read food recognition response: {error}"))?
+    {
+        let next_len = body
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| "Food recognition response was too large.".to_string())?;
+
+        if next_len as u64 > HUGGING_FACE_MAX_RESPONSE_BYTES {
+            return Err("Food recognition response was too large.".to_string());
+        }
+
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(body)
+}
+
+fn parse_hugging_face_food_response(
+    body: &[u8],
+    model: &'static str,
+) -> Result<Vec<FoodRecognitionDto>, String> {
+    let payload = serde_json::from_slice::<Value>(body)
+        .map_err(|error| format!("Could not read food recognition response: {error}"))?;
+    let values = payload
+        .as_array()
+        .ok_or_else(|| "Food recognition returned an unexpected response.".to_string())?;
+    let items = values.first().and_then(Value::as_array).unwrap_or(values);
+    let mut results = items
+        .iter()
+        .filter_map(|item| food_recognition_item(item, model))
+        .collect::<Vec<_>>();
+
+    results.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(results)
+}
+
+fn food_recognition_item(value: &Value, model: &'static str) -> Option<FoodRecognitionDto> {
+    let label = value
+        .get("label")
+        .and_then(Value::as_str)
+        .and_then(|value| bounded_text(&value.replace('_', " "), PRODUCT_SHORT_TEXT_LIMIT))?;
+    let score = value.get("score").and_then(Value::as_f64)?;
+
+    if !score.is_finite() {
+        return None;
+    }
+
+    Some(FoodRecognitionDto {
+        label,
+        score: score.clamp(0.0, 1.0),
+        model,
+    })
+}
+
+fn normalize_whole_food_result(mut result: FoodRecognitionDto) -> Option<FoodRecognitionDto> {
+    result.label = canonical_whole_food_label(&result.label)?;
+    Some(result)
+}
+
+fn canonical_whole_food_label(label: &str) -> Option<String> {
+    let first_label = label
+        .split(',')
+        .next()
+        .unwrap_or(label)
+        .trim()
+        .to_ascii_lowercase()
+        .replace(' ', "_");
+    let canonical = match first_label.as_str() {
+        "acorn_squash" | "butternut_squash" | "spaghetti_squash" => "squash",
+        "artichoke" => "artichoke",
+        "banana" => "banana",
+        "bell_pepper" => "bell pepper",
+        "broccoli" => "broccoli",
+        "cabbage" => "cabbage",
+        "cheeseburger" => "cheeseburger",
+        "corn" => "corn",
+        "cucumber" => "cucumber",
+        "fig" => "fig",
+        "granny_smith" => "apple",
+        "hotdog" => "hot dog",
+        "lemon" => "lemon",
+        "orange" => "orange",
+        "pineapple" => "pineapple",
+        "pizza" => "pizza",
+        "pomegranate" => "pomegranate",
+        "pretzel" => "pretzel",
+        "strawberry" => "strawberry",
+        "zucchini" => "zucchini",
+        _ => return None,
+    };
+
+    Some(canonical.to_string())
+}
+
+fn parse_image_data_url(image_data_url: &str) -> Result<(&'static str, Vec<u8>), String> {
+    let (header, encoded) = image_data_url
+        .split_once(',')
+        .ok_or_else(|| "Food recognition needs a captured image frame.".to_string())?;
+    let mime = header
+        .strip_prefix("data:")
+        .and_then(|value| value.strip_suffix(";base64"))
+        .ok_or_else(|| "Food recognition needs a base64 image frame.".to_string())?;
+    let content_type = match mime {
+        "image/jpeg" | "image/jpg" => "image/jpeg",
+        "image/png" => "image/png",
+        "image/webp" => "image/webp",
+        _ => return Err("Food recognition only supports JPEG, PNG, or WebP frames.".to_string()),
+    };
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "Food recognition could not decode the captured frame.".to_string())?;
+
+    if bytes.is_empty() {
+        return Err("Food recognition needs a captured image frame.".to_string());
+    }
+
+    if bytes.len() > HUGGING_FACE_MAX_IMAGE_BYTES {
+        return Err("Food recognition image was too large.".to_string());
+    }
+
+    Ok((content_type, bytes))
+}
+
+fn hugging_face_error_message(body: &[u8], status: reqwest::StatusCode) -> String {
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return "Food recognition needs a Hugging Face token with Inference Providers access."
+            .to_string();
+    }
+
+    let error = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|payload| {
+            payload
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+
+    match error {
+        Some(message) if !message.trim().is_empty() => {
+            format!("Food recognition failed: {}", message.trim())
+        }
+        _ => format!("Food recognition returned {status}"),
+    }
 }
 
 fn normalize_response(
@@ -361,7 +630,10 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![fetch_product_by_barcode])
+        .invoke_handler(tauri::generate_handler![
+            fetch_product_by_barcode,
+            classify_food_image
+        ])
         .run(tauri::generate_context!())
         .expect("error while running BetterBite");
 }
@@ -565,5 +837,53 @@ mod tests {
             "Open Food Facts response was too large."
         );
         assert_eq!(body.len(), previous_len);
+    }
+
+    #[test]
+    fn parses_hugging_face_food_results_by_score() {
+        let body = br#"[
+            {"label":"pizza", "score":0.72},
+            {"label":"french_fries", "score":0.91},
+            {"label":"bad"}
+        ]"#;
+
+        let results = parse_hugging_face_food_response(body, FOOD_RECOGNITION_MODEL).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].label, "french fries");
+        assert_eq!(results[0].score, 0.91);
+        assert_eq!(results[0].model, FOOD_RECOGNITION_MODEL);
+        assert_eq!(results[1].label, "pizza");
+    }
+
+    #[test]
+    fn normalizes_common_whole_food_imagenet_labels() {
+        let body = br#"[
+            {"label":"banana", "score":0.99},
+            {"label":"Granny Smith", "score":0.85},
+            {"label":"book jacket", "score":0.82}
+        ]"#;
+        let results = parse_hugging_face_food_response(body, FOOD_RECOGNITION_WHOLE_FOOD_MODEL)
+            .unwrap()
+            .into_iter()
+            .filter_map(normalize_whole_food_result)
+            .collect::<Vec<_>>();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].label, "banana");
+        assert_eq!(results[0].model, FOOD_RECOGNITION_WHOLE_FOOD_MODEL);
+        assert_eq!(results[1].label, "apple");
+    }
+
+    #[test]
+    fn validates_food_image_data_urls() {
+        let parsed = parse_image_data_url("data:image/jpeg;base64,aGVsbG8=").unwrap();
+
+        assert_eq!(parsed.0, "image/jpeg");
+        assert_eq!(parsed.1, b"hello");
+        assert_eq!(
+            parse_image_data_url("data:text/plain;base64,aGVsbG8=").unwrap_err(),
+            "Food recognition only supports JPEG, PNG, or WebP frames."
+        );
     }
 }

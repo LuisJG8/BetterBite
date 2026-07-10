@@ -3,6 +3,7 @@
 /dist
 /typesense-data
 /src-tauri/target
+.env
 .DS_Store
 /.idea
 /.vscode
