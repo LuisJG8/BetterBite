@@ -274,6 +274,7 @@
         <button type="button" id="run-tests">Run tests</button>
         <button type="button" id="reset-code">Reset</button>
       </div>
+      <p>Your practice code runs in a locked-down, unique-origin iframe that cannot access this page's DOM or storage.</p>
       <div class="lab-output" id="lab-output" aria-live="polite">Add a cookie rule, then run the tests.</div>
     </div>
 
@@ -297,7 +298,8 @@
       quiz.querySelectorAll("button").forEach((button) => {
         button.addEventListener("click", () => {
           const isCorrect = button.dataset.choice === answer;
-          feedback.className = `feedback ${isCorrect ? "good" : "bad"}`;
+          feedback.classList.remove("good", "bad");
+          feedback.classList.add(isCorrect ? "good" : "bad");
           feedback.textContent = isCorrect
             ? "Correct. You retrieved the key idea from memory."
             : "Not quite. Re-read the nearby code, then try again.";
@@ -310,7 +312,7 @@
       output.textContent = "Add a cookie rule, then run the tests.";
     });
 
-    document.getElementById("run-tests").addEventListener("click", () => {
+    document.getElementById("run-tests").addEventListener("click", async () => {
       const code = document.getElementById("code").value;
       const tests = [
         {
@@ -331,16 +333,7 @@
       ];
 
       try {
-        const suggestSwap = new Function(`${code}; return suggestSwap;`)();
-        if (typeof suggestSwap !== "function") {
-          throw new Error("The code must define a function named suggestSwap.");
-        }
-
-        const results = tests.map((test) => {
-          const actual = suggestSwap(test.food);
-          const passed = actual === test.expected;
-          return { ...test, actual, passed };
-        });
+        const results = await runCodeInSandbox(code, tests);
 
         const passedCount = results.filter((result) => result.passed).length;
         const lines = results.map((result) => {
@@ -353,6 +346,64 @@
         output.textContent = `JavaScript error:\n${error.message}`;
       }
     });
+
+    function runCodeInSandbox(code, tests) {
+      return new Promise((resolve, reject) => {
+        const frame = document.createElement("iframe");
+        const token = crypto.randomUUID();
+        const safeCode = code.replace(/<\/script/gi, "<\\/script");
+        const serializedTests = JSON.stringify(tests).replace(/</g, "\\u003c");
+        const serializedToken = JSON.stringify(token);
+        let timeout;
+
+        frame.hidden = true;
+        frame.setAttribute("sandbox", "allow-scripts");
+
+        const cleanup = () => {
+          window.clearTimeout(timeout);
+          window.removeEventListener("message", handleMessage);
+          frame.remove();
+        };
+
+        const handleMessage = (event) => {
+          if (event.source !== frame.contentWindow || event.data?.token !== token) {
+            return;
+          }
+
+          cleanup();
+          if (event.data.ok) {
+            resolve(event.data.results);
+          } else {
+            reject(new Error(event.data.error || "The sandboxed code could not run."));
+          }
+        };
+
+        window.addEventListener("message", handleMessage);
+        timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error("The sandboxed test run timed out."));
+        }, 2000);
+
+        frame.srcdoc = `<!doctype html>
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+          <script>
+            try {
+              ${safeCode}
+              if (typeof suggestSwap !== "function") {
+                throw new Error("The code must define a function named suggestSwap.");
+              }
+              const results = ${serializedTests}.map((test) => {
+                const actual = suggestSwap(test.food);
+                return { ...test, actual, passed: actual === test.expected };
+              });
+              parent.postMessage({ token: ${serializedToken}, ok: true, results }, "*");
+            } catch (error) {
+              parent.postMessage({ token: ${serializedToken}, ok: false, error: error instanceof Error ? error.message : String(error) }, "*");
+            }
+          <\/script>`;
+        document.body.append(frame);
+      });
+    }
   </script>
 </body>
 </html>
