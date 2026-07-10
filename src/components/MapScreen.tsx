@@ -46,6 +46,7 @@ export function MapScreen() {
   const restaurantMarkersRef = useRef<Marker[]>([]);
   const userMarkerRef = useRef<Marker | null>(null);
   const restaurantCardRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const isMountedRef = useRef(true);
   const [query, setQuery] = useState("");
   const [selectedDietFilters, setSelectedDietFilters] = useState<RestaurantDietFilter[]>([]);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
@@ -83,6 +84,10 @@ export function MapScreen() {
     setLocationStatus("requesting");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (!isMountedRef.current) {
+          return;
+        }
+
         setUserLocation({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
@@ -90,10 +95,20 @@ export function MapScreen() {
         setLocationStatus("ready");
       },
       () => {
-        setLocationStatus("blocked");
+        if (isMountedRef.current) {
+          setLocationStatus("blocked");
+        }
       },
       { enableHighAccuracy: false, maximumAge: 300_000, timeout: 6500 },
     );
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -125,9 +140,14 @@ export function MapScreen() {
       map.resize();
     });
 
-    window.setTimeout(() => map.resize(), 100);
+    const resizeTimeout = window.setTimeout(() => {
+      if (mapRef.current === map) {
+        map.resize();
+      }
+    }, 100);
 
     return () => {
+      window.clearTimeout(resizeTimeout);
       clearRestaurantMarkers();
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
