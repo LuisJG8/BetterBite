@@ -51,7 +51,7 @@ const SWAP_STRICTNESS: SwapStrictness[] = [
   "same-convenience",
   "strict-clean-label",
 ];
-const DEFAULT_DISPLAY_NAME = "BetterBite User";
+const DEFAULT_DISPLAY_NAME = "";
 const DEFAULT_EMAIL = "";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -357,7 +357,7 @@ function toOnboardingProfile(value: unknown): OnboardingProfile {
     dietPreferences,
     foodsToAvoid,
     swapStrictness,
-    completed: Boolean(value.completed && mainGoals.length && dietPreferences.length && foodsToAvoid.length),
+    completed: Boolean(value.completed),
   };
 }
 
@@ -458,5 +458,5 @@ function trimText(value: unknown, maxLength: number): string {
 
 function sanitizeEmail(value: unknown): string {
   const email = trimText(value, 160).toLowerCase();
-  return !email || EMAIL_PATTERN.test(email) ? email : DEFAULT_EMAIL;
+  return EMAIL_PATTERN.test(email) ? email : DEFAULT_EMAIL;
 }

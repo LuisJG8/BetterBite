@@ -165,7 +165,7 @@ const ESTIMATED_SWAP_PRICES: Record<string, string> = {
 };
 
 const TEST_BARCODE = "5449000000996";
-const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "scan-swap", "main-goal", "diet", "avoid", "account"];
+const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "main-goal", "diet", "avoid", "account"];
 const RECOMMENDED_FOODS = [
   {
     name: "Siete Sea Salt Chips",
@@ -205,7 +205,7 @@ const RECOMMENDED_FOODS = [
 
 function createEmptyOnboardingProfile(): OnboardingProfile {
   return {
-    displayName: "BetterBite User",
+    displayName: "",
     email: "",
     mainGoals: [],
     dietPreferences: [],
@@ -219,7 +219,6 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
   switch (step) {
     case "welcome":
     case "benefits":
-    case "scan-swap":
       return true;
     case "main-goal":
       return profile.mainGoals.length > 0;
@@ -228,7 +227,7 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
     case "avoid":
       return profile.foodsToAvoid.length > 0;
     case "account":
-      return isOnboardingProfileReady(profile);
+      return true;
     case "app":
       return false;
   }
@@ -568,13 +567,13 @@ export default function App() {
     setOnboardingStep(ONBOARDING_SEQUENCE[currentIndex - 1]);
   }
 
-  function handleOnboardingContinue(accountEmail?: string) {
+  function handleOnboardingContinue() {
     if (onboardingStep === "app" || !canContinueOnboardingStep(onboardingStep, onboardingProfile)) {
       return;
     }
 
     if (onboardingStep === "account") {
-      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, email: accountEmail ?? onboardingProfile.email, completed: true });
+      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, completed: true });
       const loginActivity = recordLoginActivityOnce();
       setOnboardingProfile(completedProfile);
       if (loginActivity) {
@@ -583,6 +582,19 @@ export default function App() {
       setOnboardingStep("app");
       setActiveTab("home");
       window.scrollTo({ top: 0, left: 0 });
+      return;
+    }
+
+    const currentIndex = ONBOARDING_SEQUENCE.indexOf(onboardingStep);
+    const nextStep = ONBOARDING_SEQUENCE[currentIndex + 1];
+    setOnboardingProfile(saveOnboardingProfile({ ...onboardingProfile, completed: false }));
+    if (nextStep) {
+      setOnboardingStep(nextStep);
+    }
+  }
+
+  function handleOnboardingSkip() {
+    if (onboardingStep !== "main-goal" && onboardingStep !== "diet" && onboardingStep !== "avoid") {
       return;
     }
 
@@ -612,6 +624,22 @@ export default function App() {
     updateOnboardingProfile((current) => ({
       ...current,
       foodsToAvoid: toggleMultiSelect(current.foodsToAvoid, avoidance, "none"),
+    }));
+  }
+
+  function handleAccountNameChange(displayName: string) {
+    setOnboardingProfile((current) => ({
+      ...current,
+      displayName,
+      completed: false,
+    }));
+  }
+
+  function handleAccountEmailChange(email: string) {
+    setOnboardingProfile((current) => ({
+      ...current,
+      email,
+      completed: false,
     }));
   }
 
@@ -783,6 +811,9 @@ export default function App() {
         profile={onboardingProfile}
         onBack={handleOnboardingBack}
         onContinue={handleOnboardingContinue}
+        onSkipOptionalQuestion={handleOnboardingSkip}
+        onAccountNameChange={handleAccountNameChange}
+        onAccountEmailChange={handleAccountEmailChange}
         onMainGoalToggle={handleMainGoalToggle}
         onDietPreferenceToggle={handleDietPreferenceToggle}
         onFoodAvoidanceToggle={handleFoodAvoidanceToggle}

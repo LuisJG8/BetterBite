@@ -143,7 +143,7 @@ describe("storage helpers", () => {
 
   it("persists completed onboarding when required question groups have valid values", () => {
     expect(loadOnboardingProfile()).toEqual({
-      displayName: "BetterBite User",
+      displayName: "",
       email: "",
       mainGoals: [],
       dietPreferences: [],
@@ -184,7 +184,7 @@ describe("storage helpers", () => {
       }),
     );
     expect(loadOnboardingProfile()).toEqual({
-      displayName: "BetterBite User",
+      displayName: "",
       email: "",
       mainGoals: ["manage-weight"],
       dietPreferences: ["vegetarian"],
@@ -194,7 +194,7 @@ describe("storage helpers", () => {
     });
   });
 
-  it("does not mark partial onboarding as completed", () => {
+  it("keeps onboarding completed when optional preference questions were skipped", () => {
     localStorage.setItem(
       ONBOARDING_KEY,
       JSON.stringify({
@@ -207,20 +207,20 @@ describe("storage helpers", () => {
     );
 
     expect(loadOnboardingProfile()).toEqual({
-      displayName: "BetterBite User",
+      displayName: "",
       email: "",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["vegan"],
       foodsToAvoid: [],
       swapStrictness: ["same-convenience"],
-      completed: false,
+      completed: true,
     });
   });
 
   it("keeps exclusive onboarding options mutually exclusive", () => {
     saveOnboardingProfile({
       displayName: "Alex Johnson",
-      email: "",
+      email: "alex.j@example.com",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["no-preference", "vegan", "gluten-free"],
       foodsToAvoid: ["none", "seed-oils", "added-sugars"],
@@ -230,7 +230,7 @@ describe("storage helpers", () => {
 
     expect(loadOnboardingProfile()).toEqual({
       displayName: "Alex Johnson",
-      email: "",
+      email: "alex.j@example.com",
       mainGoals: ["eat-healthier"],
       dietPreferences: ["no-preference"],
       foodsToAvoid: ["none"],
@@ -306,7 +306,7 @@ describe("storage helpers", () => {
     expect(() =>
       saveOnboardingProfile({
         displayName: "Alex Johnson",
-        email: "",
+        email: "alex.j@example.com",
         mainGoals: ["eat-healthier"],
         dietPreferences: ["vegan"],
         foodsToAvoid: ["none"],
