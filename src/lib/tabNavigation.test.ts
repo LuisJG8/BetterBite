@@ -10,12 +10,14 @@ import {
 
 describe("tab navigation helpers", () => {
   it("keeps the bottom navigation order", () => {
-    expect(APP_TAB_ORDER).toEqual(["home", "search", "scan", "profile"]);
+    expect(APP_TAB_ORDER).toEqual(["home", "search", "scan", "map", "profile"]);
   });
 
   it("finds adjacent tabs without wrapping", () => {
     expect(getAdjacentTab("home", 1)).toBe("search");
-    expect(getAdjacentTab("scan", 1)).toBe("profile");
+    expect(getAdjacentTab("scan", 1)).toBe("map");
+    expect(getAdjacentTab("map", 1)).toBe("profile");
+    expect(getAdjacentTab("map", -1)).toBe("scan");
     expect(getAdjacentTab("scan", -1)).toBe("search");
     expect(getAdjacentTab("home", -1)).toBeNull();
     expect(getAdjacentTab("profile", 1)).toBeNull();
@@ -49,7 +51,7 @@ describe("tab navigation helpers", () => {
     expect(resolveSwipeTarget({ tab: "profile", offsetX: 30, velocityX: 720, width: 430 })).toMatchObject({
       direction: -1,
       shouldCommit: true,
-      target: "scan",
+      target: "map",
     });
   });
 
@@ -57,7 +59,7 @@ describe("tab navigation helpers", () => {
     expect(resolveSwipeTarget({ tab: "scan", offsetX: -150, velocityX: 720, width: 430 })).toMatchObject({
       direction: 1,
       shouldCommit: true,
-      target: "profile",
+      target: "map",
     });
   });
 
