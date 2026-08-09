@@ -52,6 +52,31 @@ pnpm tauri dev
 
 The first run can take a few minutes because Rust dependencies need to compile.
 
+## Run on Android
+
+The Android app uses the same React and Rust code as the browser, iOS, and desktop versions. Its Android Studio project is tracked in `src-tauri/gen/android`.
+
+Install Android Studio with Android SDK Platform 36, Platform-Tools, Build-Tools, and the NDK. Also install the Android Rust targets:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+```
+
+Start an emulator or connect a device, then run:
+
+```sh
+pnpm tauri android dev
+```
+
+Build an APK for direct device testing or an AAB for Google Play:
+
+```sh
+pnpm tauri android build --apk
+pnpm tauri android build --aab
+```
+
+The release AAB must be signed before it can be uploaded to Google Play.
+
 ## Useful Commands
 
 ```sh
@@ -77,6 +102,12 @@ pnpm build
 ```
 
 Type-check and build the web app into `dist/`.
+
+```sh
+pnpm tauri android build --debug --apk --ci
+```
+
+Build a debug Android APK for local verification.
 
 ## Trying a Product Lookup
 
