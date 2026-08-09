@@ -1174,7 +1174,7 @@ function SwipeableTabViewport({
   return (
     <div
       ref={viewportRef}
-      className={`relative min-h-full overflow-x-clip overflow-y-visible touch-pan-y ${
+      className={`relative h-full min-h-full overflow-x-clip overflow-y-visible touch-pan-y ${
         transition?.settling ? "pointer-events-none" : ""
       }`}
       onPointerDown={handlePointerDown}
@@ -1184,7 +1184,7 @@ function SwipeableTabViewport({
     >
       <div
         key={displayTab}
-        className="min-h-full origin-center will-change-transform"
+        className="h-full min-h-full origin-center will-change-transform"
         style={{
           opacity: currentOpacity,
           transform: currentTransform,
@@ -1198,7 +1198,7 @@ function SwipeableTabViewport({
         <div
           key={transition.target}
           aria-hidden={transition.target !== activeTab}
-          className="absolute inset-x-0 top-0 min-h-full origin-center will-change-transform"
+          className="absolute inset-x-0 top-0 h-full min-h-full origin-center will-change-transform"
           style={{
             opacity: incomingOpacity,
             pointerEvents: "none",
