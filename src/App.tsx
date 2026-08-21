@@ -36,6 +36,7 @@ import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
 import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
 import { MapScreen } from "./components/MapScreen";
 import { MenuCaptureControls } from "./components/MenuCaptureControls";
+import { MenuResults } from "./components/MenuResults";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
 import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./components/onboardingOptions";
 import { SearchScreen } from "./components/SearchScreen";
@@ -763,9 +764,11 @@ export default function App() {
             isLoading={isLoading}
             showBarcodeEntry={showScanEntry}
             menuAnalysis={menuAnalysis}
+            foodsToAvoid={onboardingProfile.foodsToAvoid}
             onBarcodeChange={setBarcode}
             onSubmit={handleSubmit}
             onScanMenuPress={handleScanMenuPress}
+            onMenuRescan={handleScanMenuPress}
             onRestartOnboardingTest={handleRestartOnboardingTest}
           />
 
@@ -1264,9 +1267,11 @@ function DashboardScanScreen({
   isLoading,
   showBarcodeEntry,
   menuAnalysis,
+  foodsToAvoid,
   onBarcodeChange,
   onSubmit,
   onScanMenuPress,
+  onMenuRescan,
   onRestartOnboardingTest,
 }: {
   mode: "home" | "scan";
@@ -1275,9 +1280,11 @@ function DashboardScanScreen({
   isLoading: boolean;
   showBarcodeEntry: boolean;
   menuAnalysis: MenuAnalysis | null;
+  foodsToAvoid: FoodAvoidance[];
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onScanMenuPress: () => void;
+  onMenuRescan: () => void;
   onRestartOnboardingTest: () => void;
 }) {
   const isScanMode = mode === "scan";
@@ -1320,13 +1327,7 @@ function DashboardScanScreen({
       )}
 
       {isScanMode && menuAnalysis && (
-        <section className="mx-5 mt-4 rounded-2xl border border-[#B7D7D2] bg-white p-4 shadow-[0_8px_24px_rgba(0,105,107,0.08)]">
-          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#00696B]">Menu captured</p>
-          <h3 className="mt-1 text-xl font-black text-[#191C1D]">{menuAnalysis.restaurantName ?? "Restaurant menu"}</h3>
-          <p className="mt-1 text-sm font-semibold text-[#566164]">
-            Found {menuAnalysis.dishes.length} dishes across {menuAnalysis.pageCount} page{menuAnalysis.pageCount === 1 ? "" : "s"}.
-          </p>
-        </section>
+        <MenuResults analysis={menuAnalysis} foodsToAvoid={foodsToAvoid} onRescan={onMenuRescan} />
       )}
 
       {!isScanMode && (
