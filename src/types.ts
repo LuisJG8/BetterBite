@@ -140,6 +140,57 @@ export interface AppSettings {
   strictSeedOilPenalty: boolean;
 }
 
+export type MenuCravingCategory =
+  | "burgers"
+  | "chicken"
+  | "pizza"
+  | "tacos"
+  | "bowls"
+  | "salads"
+  | "sides"
+  | "drinks"
+  | "desserts"
+  | "other";
+
+export type MenuEvidenceLevel = "restaurant-verified" | "menu-inferred" | "unknown";
+
+export type MenuConcern =
+  | "added-sugar"
+  | "dairy"
+  | "fried"
+  | "gluten"
+  | "high-sodium"
+  | "processed-meat"
+  | "seed-oil-likely";
+
+export interface MenuDish {
+  id: string;
+  name: string;
+  description: string;
+  price?: string;
+  category: MenuCravingCategory;
+  preparation: string[];
+  positives: string[];
+  concerns: MenuConcern[];
+  evidence: MenuEvidenceLevel;
+  sourceText: string;
+}
+
+export interface MenuDishRecommendation extends MenuDish {
+  cravingMatch: "closest" | "strong" | "related";
+  recommendationScore: number;
+  reason: string;
+  suggestedChange?: string;
+}
+
+export interface MenuAnalysis {
+  id: string;
+  restaurantName?: string;
+  createdAt: string;
+  pageCount: number;
+  dishes: MenuDish[];
+}
+
 export interface OpenFoodFactsApiResponse {
   code?: string | number;
   status?: number;
