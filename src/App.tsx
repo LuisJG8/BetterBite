@@ -275,6 +275,7 @@ export default function App() {
   const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your laptop camera...");
   const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
   const [menuAnalysis, setMenuAnalysis] = useState<MenuAnalysis | null>(null);
+  const [menuRestaurantName, setMenuRestaurantName] = useState<string | undefined>();
   const [swapDetail, setSwapDetail] = useState<SwapDetail | null>(null);
   const [acceptedSwapIds, setAcceptedSwapIds] = useState<AcceptedSwapIds>({});
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
@@ -437,7 +438,8 @@ export default function App() {
     setError("Camera preview needs browser camera access. Type the barcode below if camera scanning is unavailable.");
   }
 
-  function handleScanMenuPress() {
+  function handleScanMenuPress(restaurantName?: string) {
+    setMenuRestaurantName(restaurantName?.trim() || undefined);
     startScanSession("menu");
   }
 
@@ -520,7 +522,7 @@ export default function App() {
   }
 
   async function handleMenuAnalyze(pages: MenuPageUpload[]) {
-    const analysis = await analyzeMenuPages({ pages });
+    const analysis = await analyzeMenuPages({ pages, restaurantName: menuRestaurantName });
     setMenuAnalysis(analysis);
     setProduct(null);
     setShowScanEntry(false);
@@ -767,8 +769,8 @@ export default function App() {
             foodsToAvoid={onboardingProfile.foodsToAvoid}
             onBarcodeChange={setBarcode}
             onSubmit={handleSubmit}
-            onScanMenuPress={handleScanMenuPress}
-            onMenuRescan={handleScanMenuPress}
+            onScanMenuPress={() => handleScanMenuPress()}
+            onMenuRescan={() => handleScanMenuPress(menuAnalysis?.restaurantName)}
             onRestartOnboardingTest={handleRestartOnboardingTest}
           />
 
@@ -797,7 +799,7 @@ export default function App() {
     }
 
     if (tab === "map") {
-      return <MapScreen />;
+      return <MapScreen onScanMenu={handleScanMenuPress} />;
     }
 
     if (profileView === "history") {
@@ -909,6 +911,7 @@ export default function App() {
             onClose={handleBrowserScannerClose}
             onDetected={handleBrowserBarcodeDetected}
             onMenuAnalyze={handleMenuAnalyze}
+            restaurantName={menuRestaurantName}
             onRetry={() => void startBrowserCameraScanner()}
           />
         )}
@@ -1362,6 +1365,7 @@ function BrowserScannerPanel({
   onClose,
   onDetected,
   onMenuAnalyze,
+  restaurantName,
   onRetry,
 }: {
   mode: ScanCameraMode;
@@ -1372,6 +1376,7 @@ function BrowserScannerPanel({
   onClose: () => void;
   onDetected: (value: string) => void;
   onMenuAnalyze: (pages: MenuPageUpload[]) => Promise<void>;
+  restaurantName?: string;
   onRetry: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1495,7 +1500,7 @@ function BrowserScannerPanel({
   const displayError = error ?? localError;
   const isBarcodeMode = mode === "barcode";
   const isMenuMode = mode === "menu";
-  const panelTitle = isBarcodeMode ? "Scan a barcode" : isMenuMode ? "Scan a menu" : "Scan food";
+  const panelTitle = isBarcodeMode ? "Scan a barcode" : isMenuMode ? `Scan ${restaurantName ? `${restaurantName} ` : "a "}menu` : "Scan food";
 
   return (
     <section
@@ -1537,6 +1542,12 @@ function BrowserScannerPanel({
       </div>
 
       {isMenuMode && <MenuCaptureControls videoRef={videoRef} onAnalyze={onMenuAnalyze} />}
+
+      {isMenuMode && restaurantName && (
+        <p className="pointer-events-none absolute left-1/2 top-[140px] z-20 max-w-[80%] -translate-x-1/2 truncate rounded-full bg-black/60 px-3 py-1.5 text-xs font-black text-white backdrop-blur">
+          {restaurantName}
+        </p>
+      )}
 
       {displayError && !isMenuMode && (
         <div className="relative z-10 px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
