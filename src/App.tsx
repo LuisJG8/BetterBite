@@ -35,6 +35,7 @@ import menuPhoto from "./assets/menu-photo.jpg";
 import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
 import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
 import { MapScreen } from "./components/MapScreen";
+import { MenuCaptureControls } from "./components/MenuCaptureControls";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
 import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./components/onboardingOptions";
 import { SearchScreen } from "./components/SearchScreen";
@@ -43,6 +44,7 @@ import { buildActivityChart, formatActivityWeekRange, type ActivityChart } from 
 import { getBarcodeError, normalizeBarcode } from "./lib/barcode";
 import { createBrowserBarcodeDetector, isBrowserCameraPreviewSupported } from "./lib/browserBarcodeScanner";
 import { filterHistoryItems } from "./lib/historyFilters";
+import { analyzeMenuPages, type MenuPageUpload } from "./lib/menuAnalysisApi";
 import { fetchProductByBarcode } from "./lib/openFoodFacts";
 import { scoreProduct } from "./lib/qualityScore";
 import { getBarcodeScannerFormats } from "./lib/scannerFormats";
@@ -77,6 +79,7 @@ import type {
   HistoryFilter,
   IngredientFlag,
   MainGoal,
+  MenuAnalysis,
   OnboardingProfile,
   Product,
   QualityScore,
@@ -85,7 +88,7 @@ import type {
 } from "./types";
 
 type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
-type ScanCameraMode = "barcode" | "food";
+type ScanCameraMode = "barcode" | "food" | "menu";
 type ProfileView = "overview" | "history";
 type SwapDetailSide = "original" | "alternative";
 type SwapDetail = {
@@ -270,6 +273,7 @@ export default function App() {
   const [browserCameraError, setBrowserCameraError] = useState<string | null>(null);
   const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your laptop camera...");
   const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
+  const [menuAnalysis, setMenuAnalysis] = useState<MenuAnalysis | null>(null);
   const [swapDetail, setSwapDetail] = useState<SwapDetail | null>(null);
   const [acceptedSwapIds, setAcceptedSwapIds] = useState<AcceptedSwapIds>({});
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
@@ -432,8 +436,8 @@ export default function App() {
     setError("Camera preview needs browser camera access. Type the barcode below if camera scanning is unavailable.");
   }
 
-  function handleScanFoodPress() {
-    startScanSession("food");
+  function handleScanMenuPress() {
+    startScanSession("menu");
   }
 
   function handleScanTabPress() {
@@ -512,6 +516,15 @@ export default function App() {
     setShowScanEntry(true);
     setBarcode(scannedBarcode);
     void handleLookup(scannedBarcode);
+  }
+
+  async function handleMenuAnalyze(pages: MenuPageUpload[]) {
+    const analysis = await analyzeMenuPages({ pages });
+    setMenuAnalysis(analysis);
+    setProduct(null);
+    setShowScanEntry(false);
+    handleBrowserScannerClose();
+    setActiveTab("scan");
   }
 
   function updateStrictSetting(value: boolean) {
@@ -749,9 +762,10 @@ export default function App() {
             error={error}
             isLoading={isLoading}
             showBarcodeEntry={showScanEntry}
+            menuAnalysis={menuAnalysis}
             onBarcodeChange={setBarcode}
             onSubmit={handleSubmit}
-            onScanMenuPress={handleScanFoodPress}
+            onScanMenuPress={handleScanMenuPress}
             onRestartOnboardingTest={handleRestartOnboardingTest}
           />
 
@@ -891,6 +905,7 @@ export default function App() {
             onModeChange={setScanCameraMode}
             onClose={handleBrowserScannerClose}
             onDetected={handleBrowserBarcodeDetected}
+            onMenuAnalyze={handleMenuAnalyze}
             onRetry={() => void startBrowserCameraScanner()}
           />
         )}
@@ -1248,6 +1263,7 @@ function DashboardScanScreen({
   error,
   isLoading,
   showBarcodeEntry,
+  menuAnalysis,
   onBarcodeChange,
   onSubmit,
   onScanMenuPress,
@@ -1258,6 +1274,7 @@ function DashboardScanScreen({
   error: string | null;
   isLoading: boolean;
   showBarcodeEntry: boolean;
+  menuAnalysis: MenuAnalysis | null;
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onScanMenuPress: () => void;
@@ -1302,6 +1319,16 @@ function DashboardScanScreen({
         />
       )}
 
+      {isScanMode && menuAnalysis && (
+        <section className="mx-5 mt-4 rounded-2xl border border-[#B7D7D2] bg-white p-4 shadow-[0_8px_24px_rgba(0,105,107,0.08)]">
+          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#00696B]">Menu captured</p>
+          <h3 className="mt-1 text-xl font-black text-[#191C1D]">{menuAnalysis.restaurantName ?? "Restaurant menu"}</h3>
+          <p className="mt-1 text-sm font-semibold text-[#566164]">
+            Found {menuAnalysis.dishes.length} dishes across {menuAnalysis.pageCount} page{menuAnalysis.pageCount === 1 ? "" : "s"}.
+          </p>
+        </section>
+      )}
+
       {!isScanMode && (
         <section className="space-y-3 px-5 pt-5">
           <HomeActionButton imageSrc={menuPhoto} label="Scan Menu" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanMenuPress} />
@@ -1333,6 +1360,7 @@ function BrowserScannerPanel({
   onModeChange,
   onClose,
   onDetected,
+  onMenuAnalyze,
   onRetry,
 }: {
   mode: ScanCameraMode;
@@ -1342,6 +1370,7 @@ function BrowserScannerPanel({
   onModeChange: (mode: ScanCameraMode) => void;
   onClose: () => void;
   onDetected: (value: string) => void;
+  onMenuAnalyze: (pages: MenuPageUpload[]) => Promise<void>;
   onRetry: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1464,7 +1493,8 @@ function BrowserScannerPanel({
 
   const displayError = error ?? localError;
   const isBarcodeMode = mode === "barcode";
-  const panelTitle = isBarcodeMode ? "Scan a barcode" : "Scan food";
+  const isMenuMode = mode === "menu";
+  const panelTitle = isBarcodeMode ? "Scan a barcode" : isMenuMode ? "Scan a menu" : "Scan food";
 
   return (
     <section
@@ -1487,7 +1517,8 @@ function BrowserScannerPanel({
         <div className="mt-5 min-w-0">
           <div className="inline-flex rounded-full border border-white/18 bg-black/34 p-1 shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-md">
             <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => onModeChange("barcode")} />
-            <ScanModeButton active={!isBarcodeMode} label="Scan food" onClick={() => onModeChange("food")} />
+            <ScanModeButton active={mode === "food"} label="Food" onClick={() => onModeChange("food")} />
+            <ScanModeButton active={isMenuMode} label="Menu" onClick={() => onModeChange("menu")} />
           </div>
         </div>
       </header>
@@ -1499,9 +1530,14 @@ function BrowserScannerPanel({
             aria-hidden="true"
           />
         )}
+        {isMenuMode && (
+          <div className="h-[52vh] max-h-[520px] w-[min(82vw,350px)] rounded-[24px] border-[3px] border-dashed border-white/85 shadow-[0_0_0_9999px_rgba(0,0,0,0.12)]" aria-hidden="true" />
+        )}
       </div>
 
-      {displayError && (
+      {isMenuMode && <MenuCaptureControls videoRef={videoRef} onAnalyze={onMenuAnalyze} />}
+
+      {displayError && !isMenuMode && (
         <div className="relative z-10 px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
           <div className="rounded-[14px] bg-[#FFD9D4] px-3 py-2 text-sm font-semibold text-[#7A1F13] shadow-[0_18px_40px_rgba(0,0,0,0.32)]">
             <div className="flex items-start gap-2">
