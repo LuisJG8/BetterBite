@@ -306,7 +306,7 @@ export function MapScreen({ onScanMenu }: { onScanMenu?: (restaurantName: string
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-3 z-10" data-swipe-ignore="true">
+      <div className="absolute inset-x-0 bottom-3 z-10 [@media(max-height:500px)]:max-h-[48%] [@media(max-height:500px)]:overflow-y-auto" data-swipe-ignore="true">
         {restaurants.length > 0 ? (
           <>
             {selectedRestaurant && onScanMenu && (
