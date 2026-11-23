@@ -3,44 +3,368 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --paper: #faf9f5;
+    --ink: #172f29;
+    --teal: #075a53;
+    --sage: #e8eee5;
+    --rule: #d7dfd5;
+    --secondary-ink: #52635c;
+    --display-font: Georgia, "Times New Roman", serif;
+  }
+
   * {
     box-sizing: border-box;
   }
 
   html {
-    background: #f7fafb;
-    scrollbar-width: none;
-  }
-
-  html::-webkit-scrollbar {
-    display: none;
+    background: var(--paper);
   }
 
   body {
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
+    background: var(--paper);
+    color: var(--ink);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     letter-spacing: 0;
-    scrollbar-width: none;
   }
 
-  body::-webkit-scrollbar {
-    display: none;
+  html.native-camera-active,
+  body.native-camera-active,
+  html.native-camera-active #root {
+    background: transparent;
   }
 
   button,
   input {
     font: inherit;
   }
+
+  :focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 3px;
+  }
 }
 
 @layer components {
+  .app-shell {
+    --gutter: max(1.25rem, env(safe-area-inset-left), env(safe-area-inset-right));
+    position: relative;
+    display: grid;
+    grid-template-areas: "brand" "content" "nav";
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--paper);
+  }
+
+  .app-masthead, .app-nav {
+    background: var(--paper);
+  }
+
+  .app-masthead {
+    grid-area: brand;
+    display: flex;
+    align-items: center;
+    padding: calc(0.5rem + env(safe-area-inset-top)) var(--gutter) 0.5rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .app-wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    border-radius: 0.25rem;
+    color: var(--teal);
+    font: bold 1.65rem/1 var(--display-font);
+    letter-spacing: -0.055em;
+  }
+
+  .app-wordmark img {
+    width: 2.35rem;
+    height: 2.35rem;
+    mix-blend-mode: multiply;
+  }
+
+  .app-content {
+    grid-area: content;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .app-page {
+    background: var(--paper);
+    padding: 0 var(--gutter) 1.5rem;
+  }
+
+  .app-nav {
+    grid-area: nav;
+    padding: 0.35rem max(0.5rem, env(safe-area-inset-right)) calc(0.35rem + env(safe-area-inset-bottom) + 3px) max(0.5rem, env(safe-area-inset-left));
+    border-top: 1px solid var(--rule);
+  }
+
+  .app-nav-items {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.125rem;
+  }
+
+  .app-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.18rem;
+    min-width: 0;
+    min-height: 2.85rem;
+    border: 1px solid transparent;
+    border-radius: 0.7rem;
+    color: var(--secondary-ink);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .app-nav-item[aria-current="page"] {
+    border-color: #bbcec0;
+    background: var(--sage);
+    color: var(--teal);
+    font-weight: 750;
+  }
+
+  @media (hover: hover) {
+    .app-nav-item:hover {
+      background: var(--sage);
+      color: var(--teal);
+    }
+  }
+
+  .native-camera-active .app-shell > :is(.app-masthead, .app-nav, .app-content) {
+    visibility: hidden;
+  }
+
+  .native-camera-active .app-shell {
+    background: transparent;
+  }
+
+  @media (min-width: 48rem) {
+    .app-shell {
+      --gutter: max(2.375rem, calc((100% - 69rem) / 2));
+      grid-template-areas: "brand nav" "content content";
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-columns: auto 1fr;
+    }
+
+    .app-masthead, .app-nav {
+      min-height: 4.75rem;
+      padding-block: max(0.65rem, env(safe-area-inset-top)) 0.65rem;
+      border: 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .app-masthead {
+      padding-inline: max(2.375rem, calc((100vw - 69rem) / 2)) 0;
+    }
+
+    .app-nav {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-inline: 1rem max(2.375rem, calc((100vw - 69rem) / 2));
+    }
+
+    .app-nav-items {
+      display: flex;
+      gap: 0.35rem;
+    }
+
+    .app-nav-item {
+      flex-direction: row;
+      gap: 0.45rem;
+      border-radius: 2rem;
+      padding: 0.5rem clamp(0.7rem, 1.2vw, 1.1rem);
+      font-size: 0.875rem;
+    }
+  }
+
   .bento-card {
-    border: 1px solid #d9e4e5;
-    border-radius: 8px;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
     background: #ffffff;
-    box-shadow: 0 18px 42px rgba(0, 180, 184, 0.1);
+    box-shadow: 0 2px 6px rgb(23 47 41 / 4%);
+  }
+
+  .record-page, .record-detail, .scan-results {
+    padding-block: clamp(1.25rem, 3vw, 2.75rem);
+    color: var(--ink);
+  }
+
+  .record-title, .record-subtitle {
+    font-family: var(--display-font);
+    font-weight: 500;
+    line-height: 1.13;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
+
+  .record-title {
+    font-size: clamp(2.35rem, 1.6rem + 3vw, 3.8rem);
+    letter-spacing: -0.05em;
+  }
+
+  .record-subtitle {
+    font-size: clamp(1.45rem, 1.1rem + 1.1vw, 2rem);
+    letter-spacing: -0.035em;
+  }
+
+  .record-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 2.75rem;
+    margin-block-end: 0.75rem;
+    color: var(--teal);
+    font-weight: 650;
+  }
+
+  .history-filter {
+    position: relative;
+    min-height: 2.75rem;
+    padding-inline: clamp(0.55rem, 2vw, 1rem);
+    color: var(--secondary-ink);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .history-filter[aria-pressed="true"] {
+    color: var(--teal);
+    font-weight: 750;
+  }
+
+  .record-data-row {
+    display: grid;
+    grid-template-columns: minmax(5.25rem, 1fr) minmax(0, 2fr);
+    align-items: baseline;
+    gap: 1rem;
+    border-block-start: 1px solid var(--rule);
+    padding-block: 0.6rem;
+    overflow-wrap: anywhere;
+  }
+
+  .record-list, .swap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .scan-report {
+    display: grid;
+    align-items: start;
+    gap: 1.25rem;
+  }
+
+  .camera-screen {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-items: center;
+    gap: clamp(0.6rem, 2dvh, 1.25rem);
+    overflow: auto;
+    padding: max(1rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  }
+
+  .camera-toolbar {
+    z-index: 30;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.5rem;
+    width: min(100%, 56rem);
+  }
+
+  .camera-screen:not([open]) { display: none; }
+  .camera-screen::backdrop { background: transparent; }
+
+  .camera-toolbar > button { justify-self: end; }
+
+  .camera-title {
+    max-width: 9ch;
+    font: 500 clamp(1.15rem, 1rem + 1.6vw, 2.4rem)/1.04 var(--display-font);
+    letter-spacing: -0.04em;
+  }
+
+  .camera-viewfinder {
+    position: relative;
+    z-index: 10;
+    width: min(100%, 56rem);
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid rgb(255 255 255 / 25%);
+    border-radius: 1.25rem;
+  }
+
+  .camera-error {
+    position: absolute;
+    z-index: 20;
+    inset-inline: 1rem;
+    top: calc(50% - 2.25rem);
+    transform: translateY(-50%);
+    max-width: 27rem;
+    max-height: calc(100% - 6.75rem);
+    overflow: auto;
+    margin-inline: auto;
+    border-radius: 0.9rem;
+    background: #fff1e9;
+    padding: 1rem;
+    color: #733522;
+    font-size: 0.925rem;
+    line-height: 1.5;
+  }
+
+  .camera-actions {
+    position: absolute;
+    z-index: 20;
+    inset: auto 1rem 1rem;
+    display: grid;
+    grid-template-columns: 3.625rem minmax(0, 1fr) 3.625rem;
+    align-items: center;
+  }
+
+  @media (max-height: 30rem) and (orientation: landscape) {
+    .camera-screen { grid-template: minmax(0, 1fr) / auto minmax(0, 1fr); }
+    .camera-toolbar { display: flex; width: 9rem; flex-direction: column; justify-content: space-evenly; }
+    .camera-title { max-width: none; }
+  }
+
+  @media (min-width: 48rem) {
+    .scan-report {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .scan-report-heading, .scan-report > :last-child:nth-child(4) {
+      grid-column: 1 / -1;
+    }
+
+    .record-detail {
+      max-width: 52rem;
+      margin-inline: auto;
+    }
+
+    .record-feature {
+      display: grid;
+      grid-template-columns: minmax(13rem, 1fr) minmax(0, 1.7fr);
+      align-items: stretch;
+    }
+
+    .record-feature > :first-child {
+      display: grid;
+      place-items: center;
+    }
   }
 
   .icon-button {
@@ -72,13 +396,8 @@
   .app-scroll-area {
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    scrollbar-width: none;
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .app-scroll-area::-webkit-scrollbar {
-    display: none;
   }
 
   .line-clamp-1 {
@@ -96,122 +415,145 @@
   }
 
   .betterbite-map-canvas .maplibregl-canvas {
-    filter: saturate(0.72) brightness(1.08) contrast(0.94);
+    filter: saturate(1.04) brightness(1.01) contrast(1);
   }
 
   .betterbite-map-shell .maplibregl-ctrl-attrib {
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.82);
-    box-shadow: 0 8px 18px rgba(0, 31, 33, 0.12);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 6px 16px rgba(0, 64, 66, 0.1);
   }
 
   .betterbite-map-marker {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    position: absolute;
+    display: block;
+    height: 64px;
+    width: 64px;
     border: 0;
     background: transparent;
-    color: #111314;
+    padding: 0;
+    color: #172829;
     cursor: pointer;
-    filter: drop-shadow(0 7px 12px rgba(0, 31, 33, 0.18));
-    transition:
-      filter 150ms ease,
-      transform 150ms ease;
   }
 
-  .betterbite-map-marker:hover,
-  .betterbite-map-marker:focus-visible {
-    filter: drop-shadow(0 10px 16px rgba(0, 31, 33, 0.24));
-    transform: translateY(-2px);
-  }
-
-  .betterbite-map-marker:focus-visible {
-    outline: 3px solid rgba(0, 197, 200, 0.38);
-    outline-offset: 5px;
-  }
-
-  .betterbite-map-marker__rating {
-    display: inline-flex;
-    min-width: 42px;
-    height: 38px;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(17, 19, 20, 0.08);
-    border-radius: 999px;
-    background: #ffffff;
-    padding: 0 10px;
-    font-size: 15px;
-    font-weight: 900;
-    line-height: 1;
-    color: #111314;
-  }
-
-  .betterbite-map-marker__accent {
+  .betterbite-map-marker::after {
     position: absolute;
-    right: -2px;
-    top: -3px;
-    height: 12px;
-    width: 12px;
-    border: 2px solid #ffffff;
-    border-radius: 4px 999px 999px 999px;
-    background: #13a86f;
-    transform: rotate(-24deg);
+    bottom: 4px;
+    left: 50%;
+    z-index: 0;
+    height: 13px;
+    width: 13px;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+    background: #ffffff;
+    box-shadow: 4px 4px 10px rgba(0, 64, 66, 0.12);
+    content: "";
+    transform: translateX(-50%) rotate(45deg);
   }
 
-  .betterbite-map-marker--selected {
-    flex-direction: column;
-    gap: 5px;
-    filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.34));
+  .betterbite-map-marker:focus-visible {
+    outline: none;
   }
 
-  .betterbite-map-marker--selected:hover,
-  .betterbite-map-marker--selected:focus-visible {
-    transform: translateY(-3px);
-  }
-
-  .betterbite-map-marker__selected-pin {
-    display: inline-flex;
-    height: 48px;
-    width: 48px;
+  .betterbite-map-marker__logo-frame {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    z-index: 1;
+    display: flex;
+    height: 50px;
+    width: 50px;
     align-items: center;
     justify-content: center;
-    border: 3px solid #ffffff;
-    border-radius: 999px;
-    background: #050505;
-    color: #ffffff;
-    font-size: 19px;
-    font-weight: 900;
-    line-height: 1;
+    overflow: hidden;
+    border: 2px solid #ffffff;
+    border-radius: 17px;
+    background: #ffffff;
+    padding: 4px;
+    box-shadow:
+      0 8px 22px rgba(0, 64, 66, 0.2),
+      0 1px 3px rgba(0, 64, 66, 0.12);
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+    transform: translateX(-50%);
+  }
+
+  .betterbite-map-marker__logo {
+    display: block;
+    height: 100%;
+    width: 100%;
+    border-radius: 12px;
+    object-fit: contain;
+  }
+
+  .betterbite-map-marker:hover .betterbite-map-marker__logo-frame,
+  .betterbite-map-marker:focus-visible .betterbite-map-marker__logo-frame {
+    box-shadow:
+      0 11px 26px rgba(0, 64, 66, 0.24),
+      0 0 0 4px rgba(0, 168, 171, 0.22);
+  }
+
+  .betterbite-map-marker:focus-visible .betterbite-map-marker__logo-frame {
+    box-shadow:
+      0 10px 24px rgba(0, 64, 66, 0.22),
+      0 0 0 4px rgba(0, 168, 171, 0.38);
+  }
+
+  .betterbite-map-marker--nearest:not(.betterbite-map-marker--selected) .betterbite-map-marker__logo-frame {
+    border-color: #4bb98a;
+    box-shadow:
+      0 10px 24px rgba(0, 64, 66, 0.22),
+      0 0 0 4px rgba(221, 245, 232, 0.94);
+  }
+
+  .betterbite-map-marker--selected .betterbite-map-marker__logo-frame {
+    height: 58px;
+    width: 58px;
+    border-color: #00a8ab;
+    border-radius: 20px;
+    box-shadow:
+      0 12px 28px rgba(0, 64, 66, 0.24),
+      0 0 0 4px rgba(255, 255, 255, 0.94),
+      0 0 0 7px rgba(0, 168, 171, 0.34);
   }
 
   .betterbite-map-marker__selected-label {
-    max-width: 132px;
+    position: absolute;
+    bottom: 72px;
+    left: 50%;
+    z-index: 2;
+    max-width: 168px;
     overflow: hidden;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.94);
-    color: #111314;
-    padding: 3px 8px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 7px 18px rgba(0, 64, 66, 0.16);
+    color: #173b3c;
+    padding: 5px 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 900;
-    line-height: 17px;
+    line-height: 16px;
+    transform: translateX(-50%);
+  }
+
+  .betterbite-map-marker__nearest-label {
+    background: rgba(221, 245, 232, 0.98);
+    color: #176241;
+    font-size: 11px;
+    letter-spacing: 0.01em;
   }
 
   .betterbite-map-user-marker {
-    height: 18px;
-    width: 18px;
+    height: 20px;
+    width: 20px;
     border: 4px solid #ffffff;
     border-radius: 999px;
-    background: #006dff;
+    background: #1478ff;
     box-shadow:
-      0 0 0 8px rgba(0, 109, 255, 0.18),
+      0 0 0 8px rgba(20, 120, 255, 0.17),
       0 8px 20px rgba(0, 42, 120, 0.24);
   }
 
-  .maplibregl-ctrl-bottom-left {
-    bottom: 76px;
-    left: 12px;
-  }
 }

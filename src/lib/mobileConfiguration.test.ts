@@ -25,6 +25,14 @@ describe("mobile configuration", () => {
     expect(readFileSync(resolve(resources, foreground))).toEqual(readFileSync(resolve("src-tauri/icons/android", foreground)));
   });
 
+  it("allows the local catalog service during native development", () => {
+    const { csp, devCsp } = JSON.parse(projectFile("src-tauri/tauri.conf.json")).app.security;
+    for (const origin of ["http://localhost:8108", "http://127.0.0.1:8108"]) {
+      expect(devCsp).toContain(origin);
+      expect(csp).not.toContain(origin);
+    }
+  });
+
   it("allows the map resources required by the native webview", () => {
     const config = JSON.parse(projectFile("src-tauri/tauri.conf.json")) as {
       app: { security: { csp: string; devCsp: string } };
@@ -32,9 +40,11 @@ describe("mobile configuration", () => {
 
     for (const policy of [config.app.security.csp, config.app.security.devCsp]) {
       expect(policy).toContain("https://tile.openstreetmap.org");
+      expect(policy).toContain("https://tiles.openfreemap.org");
       expect(policy).toContain("worker-src 'self';");
 
       for (const imageHost of [
+        "https://www.truefoodkitchen.com",
         "https://i5.walmartimages.com",
         "https://drinkolipop.com",
         "https://hukitchen.com",

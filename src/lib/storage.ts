@@ -12,12 +12,17 @@ import type {
   SwapStrictness,
 } from "../types";
 import { getBarcodeError } from "./barcode";
+import type { AccurateMapLocation } from "./mapLocation";
 import { safeOpenFoodFactsImageUrl } from "./sanitize";
 
 export const ACTIVITY_KEY = "betterbite.activity.v1";
+export const LOGIN_ACTIVITY_SESSION_KEY = "betterbite.loginActivityRecorded.v1";
 export const ONBOARDING_KEY = "betterbite.onboarding.v2";
 export const SAVED_SWAP_HISTORY_KEY = "betterbite.savedSwapHistory.v1";
 export const SCAN_HISTORY_KEY = "betterbite.scanHistory.v1";
+export const MAP_LOCATION_KEY = "betterbite.mapLocation.v1";
+const FAVORITE_RESTAURANTS_KEY = "betterbite.favoriteRestaurants.v1";
+const MAP_LOCATION_MAX_AGE_MS = 10 * 60_000;
 export const SETTINGS_KEY = "betterbite.settings.v1";
 
 const ACTIVITY_RETENTION_DAYS = 400;
@@ -195,6 +200,88 @@ export function saveSettings(settings: AppSettings): void {
   });
 }
 
+function sanitizeFavoriteRestaurantIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.filter((id): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(id));
+  return [...new Set(ids)].slice(0, 200);
+}
+
+export function loadFavoriteRestaurantIds(): string[] {
+  return sanitizeFavoriteRestaurantIds(readJson<unknown>(FAVORITE_RESTAURANTS_KEY, []));
+}
+
+export function saveFavoriteRestaurantIds(ids: string[]): void {
+  writeJson(FAVORITE_RESTAURANTS_KEY, sanitizeFavoriteRestaurantIds(ids));
+}
+
+export function deleteLocalProfileData(): void {
+  sessionStorage.removeItem(MAP_LOCATION_KEY);
+  sessionStorage.removeItem(LOGIN_ACTIVITY_SESSION_KEY);
+  for (const key of [MAP_LOCATION_KEY, ACTIVITY_KEY, SAVED_SWAP_HISTORY_KEY, SCAN_HISTORY_KEY, SETTINGS_KEY, FAVORITE_RESTAURANTS_KEY, ONBOARDING_KEY]) {
+    localStorage.removeItem(key);
+  }
+}
+
+export function clearMapLocation(): void {
+  try { sessionStorage.removeItem(MAP_LOCATION_KEY); } catch { /* Storage may be disabled. */ }
+  discardLegacyMapLocation();
+}
+
+export function discardLegacyMapLocation(): void {
+  try { localStorage.removeItem(MAP_LOCATION_KEY); } catch { /* Storage may be disabled. */ }
+}
+
+export function loadMapLocation(): AccurateMapLocation | null {
+  discardLegacyMapLocation();
+  try {
+    const raw = sessionStorage.getItem(MAP_LOCATION_KEY);
+    if (!raw) return null;
+    const location = toMapLocation(JSON.parse(raw));
+    if (!location) clearMapLocation();
+    return location;
+  } catch {
+    clearMapLocation();
+    return null;
+  }
+}
+
+export function saveMapLocation(location: AccurateMapLocation): AccurateMapLocation | null {
+  const valid = toMapLocation(location);
+  if (!valid) return null;
+  discardLegacyMapLocation();
+  try { sessionStorage.setItem(MAP_LOCATION_KEY, JSON.stringify(valid)); } catch { /* The in-memory result is still usable. */ }
+  return valid;
+}
+
+function toMapLocation(value: unknown): AccurateMapLocation | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const { accuracyMeters, capturedAt, latitude, longitude } = value;
+  if (
+    typeof latitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180 ||
+    typeof accuracyMeters !== "number" ||
+    !Number.isFinite(accuracyMeters) ||
+    accuracyMeters < 0 ||
+    typeof capturedAt !== "number" ||
+    !Number.isFinite(capturedAt) ||
+    capturedAt > Date.now() ||
+    Date.now() - capturedAt > MAP_LOCATION_MAX_AGE_MS
+  ) {
+    return null;
+  }
+
+  return { accuracyMeters, capturedAt, latitude, longitude };
+}
+
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -343,7 +430,8 @@ function toOnboardingProfile(value: unknown): OnboardingProfile {
     return DEFAULT_ONBOARDING_PROFILE;
   }
 
-  const displayName = trimText(value.displayName, 80) || DEFAULT_DISPLAY_NAME;
+  const nameDraft = typeof value.displayName === "string" ? value.displayName.slice(0, 80) : DEFAULT_DISPLAY_NAME;
+  const displayName = value.completed === true ? nameDraft.trim() : nameDraft;
   const email = value.completed ? sanitizeEmail(value.email) : trimText(value.email, 160);
   const mainGoals = sanitizeOptionArray(value.mainGoals, MAIN_GOALS);
   const dietPreferences = sanitizeOptionArray(value.dietPreferences, DIET_PREFERENCES, "no-preference");

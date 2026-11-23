@@ -97,7 +97,7 @@ export function reduceFoodSearchState(state: FoodSearchState, action: FoodSearch
       if (state.submittedQuery && query.trim() !== state.submittedQuery) {
         return { ...INITIAL_FOOD_SEARCH_STATE, query };
       }
-      return { ...state, query, error: null };
+      return { ...state, query };
     }
     case "searchStarted":
       return {
@@ -182,7 +182,7 @@ export function friendlyTypesenseError(error: unknown): string {
     return "Typesense rejected the local search key. Run pnpm typesense:seed to recreate the prototype key.";
   }
 
-  return message || "Could not search foods.";
+  return "Could not search foods. Please try again.";
 }
 
 function getSearchClient(): Client {

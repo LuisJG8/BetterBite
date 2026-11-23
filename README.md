@@ -4,7 +4,7 @@ Better Bite is a React + Tauri app for scanning or entering food barcodes, scori
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22.13 or newer (CI uses Node.js 24)
 - pnpm 11.0.6
 - Rust, if you want to run the Tauri desktop app
 
@@ -56,7 +56,7 @@ The first run can take a few minutes because Rust dependencies need to compile.
 
 The Android app uses the same React and Rust code as the browser, iOS, and desktop versions. Its Android Studio project is tracked in `src-tauri/gen/android`.
 
-Install Android Studio with Android SDK Platform 36, Platform-Tools, Build-Tools, and the NDK. Also install the Android Rust targets:
+Install Android Studio with Android SDK Platform 36, Platform-Tools, Build-Tools, and the side-by-side NDK. Also install the Android Rust targets:
 
 ```sh
 rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
@@ -80,6 +80,8 @@ pnpm tauri android build --aab
 The release AAB must be signed before it can be uploaded to Google Play.
 
 ## Useful Commands
+
+Run `pnpm typecheck` to check both the app and the Vite configuration.
 
 ```sh
 pnpm dev
@@ -110,6 +112,12 @@ pnpm tauri android build --debug --apk --ci
 ```
 
 Build a debug Android APK for local verification.
+
+## Trying Food Search
+
+Start the local catalog with `docker compose up -d`, then load the sample foods with `pnpm typesense:seed`. For native Android development, run `adb reverse tcp:8108 tcp:8108` on the connected device so the app can reach the catalog on your computer.
+
+For a deployed catalog, set `VITE_TYPESENSE_HOST`, `VITE_TYPESENSE_PORT`, `VITE_TYPESENSE_PROTOCOL=https` and a search-only `VITE_TYPESENSE_SEARCH_KEY` before building. Allow the exact HTTPS catalog origin in the native app’s `connect-src` policy. Keep the Typesense admin key on the server.
 
 ## Trying a Product Lookup
 

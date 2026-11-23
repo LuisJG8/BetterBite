@@ -2,7 +2,7 @@
 
 ## Pull Request Workflow
 
-When creating a PR with new code changes, make sure the changes target the `main` branch.
+When creating a PR with new code changes, make sure the changes go to the `main` branch, and the `main` branch only.
 
 ## Product Direction
 

@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
-    "composite": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "module": "ESNext",
+    "types": ["node"],
     "lib": ["ES2022"],
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
