@@ -1,5 +1,12 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
+  CameraIcon as HeroCameraIcon,
+  HomeIcon as HeroHomeIcon,
+  MagnifyingGlassIcon as HeroMagnifyingGlassIcon,
+  MapPinIcon as HeroMapPinIcon,
+  UserIcon as HeroUserIcon,
+} from "@heroicons/react/24/outline";
+import {
   AlertTriangle,
   Apple,
   Barcode,
@@ -14,31 +21,51 @@ import {
   DollarSign,
   FileText,
   History,
-  House,
   Leaf,
   Loader2,
-  LogOut,
   Mail,
   MapPin,
+  Navigation,
   Pencil,
   RefreshCw,
   Search,
   Shield,
   Sparkles,
+  SwitchCamera,
   Trash2,
-  User,
 } from "lucide-react";
-import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  FormEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
 import foodPhoto from "./assets/onboarding-food-hero.png";
 import menuPhoto from "./assets/menu-photo.jpg";
-import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
-import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
-import { MapScreen } from "./components/MapScreen";
 import { MenuCaptureControls } from "./components/MenuCaptureControls";
 import { MenuResults } from "./components/MenuResults";
+import { analyzeMenuPages, type MenuPageUpload } from "./lib/menuAnalysisApi";
+import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
+import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
+import huGemsPhoto from "./assets/recommendations/hu-dark-chocolate-gems.webp";
+import lesserEvilPopcornPhoto from "./assets/recommendations/lesserevil-pink-salt-popcorn.webp";
+import olipopColaPhoto from "./assets/recommendations/olipop-vintage-cola.webp";
+import sieteChipsPhoto from "./assets/recommendations/siete-sea-salt-chips.webp";
+import sieteCookiesPhoto from "./assets/recommendations/siete-shortbread-cookies.webp";
+import "./components/dashboard.css";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
+import { MapScreen } from "./components/MapScreen";
 import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./components/onboardingOptions";
 import { SearchScreen } from "./components/SearchScreen";
 import { getAlternatives } from "./lib/alternatives";
@@ -47,12 +74,14 @@ import { getBarcodeError, normalizeBarcode } from "./lib/barcode";
 import { createBrowserBarcodeDetector, isBrowserCameraPreviewSupported } from "./lib/browserBarcodeScanner";
 import { FOOD_RECOGNITION_MIN_SCORE, recognizeFoodInImage, type FoodRecognitionResult } from "./lib/foodRecognition";
 import { filterHistoryItems } from "./lib/historyFilters";
-import { analyzeMenuPages, type MenuPageUpload } from "./lib/menuAnalysisApi";
 import { fetchProductByBarcode } from "./lib/openFoodFacts";
 import { scoreProduct } from "./lib/qualityScore";
 import { getBarcodeScannerFormats } from "./lib/scannerFormats";
 import {
   appendSavedSwapHistory,
+  discardLegacyMapLocation,
+  LOGIN_ACTIVITY_SESSION_KEY,
+  deleteLocalProfileData,
   loadActivityDays,
   loadOnboardingProfile,
   loadSavedSwapHistory,
@@ -92,6 +121,7 @@ import type {
 
 type VisibleOnboardingStep = Exclude<OnboardingStep, "app">;
 type ScanCameraMode = "barcode" | "food" | "menu";
+type CameraFacingMode = "environment" | "user";
 type ProfileView = "overview" | "history";
 type SwapDetailSide = "original" | "alternative";
 type SwapDetail = {
@@ -105,7 +135,6 @@ type SavedSwapHistoryGroup = {
   latestSavedAt: string;
   swaps: SavedSwapHistoryItem[];
 };
-const LOGIN_ACTIVITY_SESSION_KEY = "betterbite.loginActivityRecorded.v1";
 let didRecordLoginThisRuntimeDate: string | null = null;
 
 const FALLBACK_SWAP: AlternativeProduct = {
@@ -179,49 +208,85 @@ const RECOMMENDED_FOODS = [
     name: "Siete Sea Salt Chips",
     detail: "Tortilla chip craving",
     score: "9.1",
-    imageSrc:
-      "https://i5.walmartimages.com/seo/Siete-Sea-Salt-Grain-Free-Tortilla-Chips-5-oz-bags-6-Pack_cc895596-1502-466a-9503-e8735e63c75f.78b38d2618f499df8b32bda2ef045c22.jpeg?odnBg=FFFFFF&odnHeight=573&odnWidth=573",
+    price: "$4.99",
+    serving: "1 oz serving",
+    calories: 130,
+    macros: { protein: "1g", carbs: "19g", fat: "7g", fiber: "2g", sugar: "1g" },
+    ingredients: ["Cassava flour", "Avocado oil", "Coconut flour", "Chia seed", "Sea salt"],
+    stores: [
+      { name: "Whole Foods Market", distance: "0.8 mi", aisle: "Snack aisle", stock: "In stock" },
+      { name: "Target", distance: "1.6 mi", aisle: "Better-for-you snacks", stock: "Low stock" },
+      { name: "Walmart", distance: "2.3 mi", aisle: "Chips", stock: "In stock" },
+    ],
+    imageSrc: sieteChipsPhoto,
   },
   {
     name: "Siete Shortbread Cookies",
     detail: "Cookie craving",
     score: "8.8",
-    imageSrc:
-      "https://i5.walmartimages.com/seo/Siete-Family-Foods-Grain-Free-Mexican-Shortbread-Cookies-4-5-oz_c89275e8-ea6c-43c6-9f1d-10e4d9f0f9f3.baf3460c87b4c8b898b9386834c1741f.jpeg?odnBg=FFFFFF&odnHeight=573&odnWidth=573",
+    price: "$5.49",
+    serving: "3 cookies",
+    calories: 130,
+    macros: { protein: "2g", carbs: "18g", fat: "6g", fiber: "1g", sugar: "7g" },
+    ingredients: ["Almond flour", "Cassava flour", "Coconut sugar", "Cinnamon", "Sea salt"],
+    stores: [
+      { name: "Sprouts Farmers Market", distance: "1.1 mi", aisle: "Cookies", stock: "In stock" },
+      { name: "Whole Foods Market", distance: "1.9 mi", aisle: "Gluten-free snacks", stock: "In stock" },
+      { name: "Target", distance: "3.0 mi", aisle: "Natural grocery", stock: "Check app" },
+    ],
+    imageSrc: sieteCookiesPhoto,
   },
   {
     name: "OLIPOP Vintage Cola",
     detail: "Soda craving",
     score: "8.7",
-    imageSrc:
-      "https://drinkolipop.com/cdn/shop/articles/OLIPOP_SS_12oz_VC_CANGLASS_1x1_b5ab2bbb-0df2-4618-87c7-0c98d82eaec3_300x.jpg?v=1780063814",
+    price: "$2.49",
+    serving: "12 fl oz can",
+    calories: 35,
+    macros: { protein: "0g", carbs: "16g", fat: "0g", fiber: "9g", sugar: "2g" },
+    ingredients: ["Carbonated water", "Cassava root fiber", "Chicory root inulin", "Natural cola flavor", "Stevia"],
+    stores: [
+      { name: "Target", distance: "0.7 mi", aisle: "Functional drinks", stock: "In stock" },
+      { name: "Kroger", distance: "1.4 mi", aisle: "Soda aisle", stock: "In stock" },
+      { name: "Whole Foods Market", distance: "2.1 mi", aisle: "Cold drinks", stock: "In stock" },
+    ],
+    imageSrc: olipopColaPhoto,
   },
   {
     name: "Hu Dark Chocolate Gems",
     detail: "Chocolate craving",
     score: "8.9",
-    imageSrc: "https://hukitchen.com/cdn/shop/files/HU_HK.com_FOP_800x.png?v=1766423209",
+    price: "$6.99",
+    serving: "1 oz serving",
+    calories: 160,
+    macros: { protein: "2g", carbs: "14g", fat: "12g", fiber: "3g", sugar: "8g" },
+    ingredients: ["Organic cacao", "Coconut sugar", "Cocoa butter"],
+    stores: [
+      { name: "Whole Foods Market", distance: "0.9 mi", aisle: "Chocolate", stock: "In stock" },
+      { name: "Sprouts Farmers Market", distance: "2.2 mi", aisle: "Candy alternatives", stock: "Low stock" },
+      { name: "Fresh Market", distance: "3.4 mi", aisle: "Snacks", stock: "Check app" },
+    ],
+    imageSrc: huGemsPhoto,
   },
   {
     name: "LesserEvil Pink Salt Popcorn",
     detail: "Popcorn craving",
     score: "8.6",
-    imageSrc:
-      "https://www.lesserevil.com/cdn/shop/files/LE_OP_4p6oz_HP_Front_3eee5efe-219f-483b-8c9c-8a90e8062d4d.jpg?v=1746038645&width=2200",
+    price: "$4.49",
+    serving: "3 cups",
+    calories: 120,
+    macros: { protein: "2g", carbs: "15g", fat: "6g", fiber: "4g", sugar: "0g" },
+    ingredients: ["Organic popcorn", "Coconut oil", "Himalayan pink salt"],
+    stores: [
+      { name: "Whole Foods Market", distance: "0.8 mi", aisle: "Popcorn", stock: "In stock" },
+      { name: "Target", distance: "1.8 mi", aisle: "Snack aisle", stock: "In stock" },
+      { name: "Walmart", distance: "2.6 mi", aisle: "Popcorn", stock: "Check app" },
+    ],
+    imageSrc: lesserEvilPopcornPhoto,
   },
 ];
+type RecommendedFood = (typeof RECOMMENDED_FOODS)[number];
 
-function createEmptyOnboardingProfile(): OnboardingProfile {
-  return {
-    displayName: "",
-    email: "",
-    mainGoals: [],
-    dietPreferences: [],
-    foodsToAvoid: [],
-    swapStrictness: [],
-    completed: false,
-  };
-}
 
 function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProfile): boolean {
   switch (step) {
@@ -239,10 +304,6 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
     case "app":
       return false;
   }
-}
-
-function isOnboardingProfileReady(profile: OnboardingProfile): boolean {
-  return Boolean(profile.mainGoals.length && profile.dietPreferences.length && profile.foodsToAvoid.length);
 }
 
 function toggleMultiSelect<T extends string>(currentValues: T[], value: T, exclusiveValue?: T): T[] {
@@ -274,11 +335,13 @@ export default function App() {
   const [showBrowserScanner, setShowBrowserScanner] = useState(false);
   const [browserCameraStream, setBrowserCameraStream] = useState<MediaStream | null>(null);
   const [browserCameraError, setBrowserCameraError] = useState<string | null>(null);
-  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your camera...");
+  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting camera...");
   const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
+  const [cameraFacingMode, setCameraFacingMode] = useState<CameraFacingMode>("environment");
+  const [isNativeCameraPreview, setIsNativeCameraPreview] = useState(false);
   const [foodScanResult, setFoodScanResult] = useState<FoodRecognitionResult | null>(null);
   const [menuAnalysis, setMenuAnalysis] = useState<MenuAnalysis | null>(null);
-  const [menuRestaurantName, setMenuRestaurantName] = useState<string | undefined>();
+  const [menuRestaurantName, setMenuRestaurantName] = useState<string>();
   const [swapDetail, setSwapDetail] = useState<SwapDetail | null>(null);
   const [acceptedSwapIds, setAcceptedSwapIds] = useState<AcceptedSwapIds>({});
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
@@ -289,12 +352,15 @@ export default function App() {
   const [selectedHistoryScore, setSelectedHistoryScore] = useState<QualityScore | null>(null);
   const [historyDetailError, setHistoryDetailError] = useState<string | null>(null);
   const [isHistoryDetailLoading, setIsHistoryDetailLoading] = useState(false);
-  const scanResultRef = useRef<HTMLDivElement>(null);
-  const contentScrollRef = useRef<HTMLElement>(null);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
   const historyDetailRequestRef = useRef(0);
-  const lookupRequestRef = useRef(0);
   const browserCameraStreamRef = useRef<MediaStream | null>(null);
   const browserCameraRequestRef = useRef(0);
+  const nativeCameraRequestRef = useRef(0);
+  const nativeScanActiveRef = useRef(false);
+  const nativeCancelRef = useRef<Promise<void>>(Promise.resolve());
+  const cameraSessionRef = useRef(0);
+  const lookupRequestRef = useRef(0);
 
   const qualityScore = useMemo(() => (product ? scoreProduct(product, settings) : null), [product, settings]);
   const alternatives = useMemo(() => (product ? getAlternatives(product) : []), [product]);
@@ -305,6 +371,7 @@ export default function App() {
   );
 
   useEffect(() => {
+    discardLegacyMapLocation();
     setHistory(loadScanHistory());
     setSavedSwapHistory(loadSavedSwapHistory());
     setSettings(loadSettings());
@@ -313,7 +380,10 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      cameraSessionRef.current += 1;
+      browserCameraRequestRef.current += 1;
       stopMediaStream(browserCameraStreamRef.current);
+      void cancelNativeCameraScanner();
     };
   }, []);
 
@@ -322,26 +392,30 @@ export default function App() {
       return;
     }
 
-    scrollScanResultIntoView();
+    scrollScanScreenToTop();
   }, [activeTab, product]);
 
   useEffect(() => {
-    if (activeTab !== "scan") {
-      handleBrowserScannerClose();
-    }
-  }, [activeTab]);
+    document.documentElement.classList.toggle("native-camera-active", isNativeCameraPreview);
+    document.body.classList.toggle("native-camera-active", isNativeCameraPreview);
+
+    return () => {
+      document.documentElement.classList.remove("native-camera-active");
+      document.body.classList.remove("native-camera-active");
+    };
+  }, [isNativeCameraPreview]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
       contentScrollRef.current?.scrollTo({ top: 0, left: 0 });
     });
-  }, [activeTab, profileView, selectedHistoryItem]);
+  }, [activeTab, profileView, selectedHistoryItem, selectedSavedSwap]);
 
-  function scrollScanResultIntoView(): void {
+  function scrollScanScreenToTop(): void {
     requestAnimationFrame(() => {
-      scanResultRef.current?.scrollIntoView({ block: "start" });
+      contentScrollRef.current?.scrollTo({ top: 0, left: 0 });
       window.setTimeout(() => {
-        scanResultRef.current?.scrollIntoView({ block: "start" });
+        contentScrollRef.current?.scrollTo({ top: 0, left: 0 });
       }, 80);
     });
   }
@@ -354,6 +428,7 @@ export default function App() {
       setIsLoading(false);
       setProduct(null);
       setError(validationError);
+      setShowScanEntry(true);
       return;
     }
 
@@ -370,6 +445,7 @@ export default function App() {
       if (lookupId !== lookupRequestRef.current) return;
       const nextScore = scoreProduct(nextProduct, settings);
       setProduct(nextProduct);
+      setShowScanEntry(false);
       setBarcode(normalized);
       setSwapDetail(null);
       setActiveTab("scan");
@@ -384,43 +460,94 @@ export default function App() {
         }),
       );
       setActivityDays(recordActivity("barcode_scan"));
-      scrollScanResultIntoView();
+      scrollScanScreenToTop();
     } catch (lookupError) {
       if (lookupId !== lookupRequestRef.current) return;
       const message = lookupError instanceof Error ? lookupError.message : "Could not fetch this product.";
       setError(message);
+      setShowScanEntry(true);
     } finally {
       if (lookupId === lookupRequestRef.current) setIsLoading(false);
     }
   }
 
-  async function handleScanWithCamera() {
+  async function handleScanWithCamera(facingMode: CameraFacingMode = cameraFacingMode) {
     if (!isTauriRuntime()) {
-      setError("Open the local dev URL in Chrome or Safari to test with your laptop camera, or type the barcode below.");
+      showManualBarcodeFallback("Open the local dev URL in Chrome or Safari to test the camera, or type the barcode below.");
       return;
     }
 
+    const requestId = nativeCameraRequestRef.current + 1;
+    nativeCameraRequestRef.current = requestId;
+    setShowBrowserScanner(true);
+    setIsNativeCameraPreview(true);
+    setBrowserCameraError(null);
+    setBrowserCameraStatus("Point the camera at a barcode.");
+
     try {
       const scanner = await import("@tauri-apps/plugin-barcode-scanner");
+      if (nativeCameraRequestRef.current !== requestId) return;
       const permission = await scanner.requestPermissions();
 
-      if (permission !== "granted") {
-        setError("Camera permission is required to scan a barcode.");
+      if (nativeCameraRequestRef.current !== requestId) {
         return;
       }
 
+      if (permission !== "granted") {
+        nativeScanActiveRef.current = false;
+        const message = "Camera permission is required to scan a barcode.";
+        setIsNativeCameraPreview(false);
+        setBrowserCameraError(message);
+        setBrowserCameraStatus("Camera permission is blocked.");
+        showManualBarcodeFallback(message);
+        return;
+      }
+
+      nativeScanActiveRef.current = true;
       const scanned = await scanner.scan({
-        cameraDirection: "back",
+        cameraDirection: facingMode === "environment" ? "back" : "front",
         formats: getBarcodeScannerFormats(scanner.Format),
-        windowed: false,
+        windowed: true,
       });
 
+      if (nativeCameraRequestRef.current !== requestId) {
+        return;
+      }
+
+      nativeScanActiveRef.current = false;
+      setIsNativeCameraPreview(false);
+      setShowBrowserScanner(false);
       setBarcode(scanned.content);
       await handleLookup(scanned.content);
     } catch (scanError) {
+      if (nativeCameraRequestRef.current !== requestId) {
+        return;
+      }
+
+      nativeScanActiveRef.current = false;
+      setIsNativeCameraPreview(false);
+
+      if (isScannerDismissalError(scanError)) {
+        closeCamera();
+        return;
+      }
+
       const message = scanError instanceof Error ? scanError.message : "Barcode scanner is unavailable on this target.";
-      setError(message);
+      setBrowserCameraError(message);
+      setBrowserCameraStatus("Camera access did not start.");
+      showManualBarcodeFallback(message);
     }
+  }
+
+  function cancelNativeCameraScanner(): Promise<void> {
+    nativeCameraRequestRef.current += 1;
+    if (nativeScanActiveRef.current) {
+      nativeScanActiveRef.current = false;
+      nativeCancelRef.current = import("@tauri-apps/plugin-barcode-scanner")
+        .then((scanner) => scanner.cancel())
+        .catch(() => { /* The native scan may already have completed. */ });
+    }
+    return nativeCancelRef.current;
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -431,37 +558,33 @@ export default function App() {
   function startScanSession(mode: ScanCameraMode = "barcode", restaurantName?: string) {
     lookupRequestRef.current += 1;
     setIsLoading(false);
-    setMenuRestaurantName(restaurantName?.trim() || undefined);
     setShowScanEntry(false);
     setError(null);
-    setFoodScanResult(null);
+    setMenuRestaurantName(restaurantName);
     setScanCameraMode(mode);
+    const initialFacing = mode === "menu" ? "environment" : cameraFacingMode;
+    setCameraFacingMode(initialFacing);
+    void openCamera(mode, initialFacing);
+  }
 
-    if (mode === "menu" || (isBrowserCameraPreviewSupported() && (mode === "food" || !isTauriRuntime() || !isLikelyMobileRuntime()))) {
-      void startBrowserCameraScanner(mode);
-      return;
+  async function openCamera(mode: ScanCameraMode, facing: CameraFacingMode) {
+    const session = ++cameraSessionRef.current;
+    stopBrowserCameraStream();
+    setBrowserCameraError(null);
+    setIsNativeCameraPreview(false);
+    setShowBrowserScanner(true);
+    await cancelNativeCameraScanner();
+    if (session !== cameraSessionRef.current) return;
+    if (mode === "barcode" && isTauriRuntime() && isLikelyMobileRuntime()) {
+      await handleScanWithCamera(facing);
+    } else {
+      await startBrowserCameraScanner(facing);
     }
+  }
 
-    setShowBrowserScanner(false);
-
-    if (mode === "barcode" && isTauriRuntime()) {
-      void handleScanWithCamera();
-      return;
-    }
-
+  function showManualBarcodeFallback(message: string) {
     setShowScanEntry(true);
-    setError(mode === "food"
-      ? "This device cannot preview food with its camera. You can still look up a product by barcode."
-      : "Camera access is unavailable. Type the barcode below.");
-  }
-
-  function handleScanFoodPress() {
-    handleTabChange("scan");
-    startScanSession("food");
-  }
-
-  function handleScanMenuPress(restaurantName?: string) {
-    startScanSession("menu", restaurantName);
+    setError(message);
   }
 
   function handleScanTabPress() {
@@ -476,15 +599,18 @@ export default function App() {
     setBrowserCameraStream(null);
   }
 
-  async function startBrowserCameraScanner(mode: ScanCameraMode) {
+  async function startBrowserCameraScanner(facingMode: CameraFacingMode = cameraFacingMode) {
     const requestId = browserCameraRequestRef.current + 1;
     browserCameraRequestRef.current = requestId;
 
+    setIsNativeCameraPreview(false);
     stopMediaStream(browserCameraStreamRef.current);
     browserCameraStreamRef.current = null;
     setBrowserCameraStream(null);
     setBrowserCameraError(null);
-    setBrowserCameraStatus("Starting your camera...");
+    setShowScanEntry(false);
+    setError(null);
+    setBrowserCameraStatus("Starting camera...");
     setShowBrowserScanner(true);
 
     try {
@@ -492,7 +618,6 @@ export default function App() {
         setBrowserCameraError("Camera access is unavailable on this device.");
         return;
       }
-
       const permissionState = await getBrowserCameraPermissionState();
 
       if (browserCameraRequestRef.current !== requestId) {
@@ -500,7 +625,9 @@ export default function App() {
       }
 
       if (permissionState === "denied") {
-        setBrowserCameraError(getBrowserCameraBlockedMessage());
+        const message = getBrowserCameraBlockedMessage();
+        setBrowserCameraError(message);
+        showManualBarcodeFallback(message);
         setBrowserCameraStatus("Camera permission is blocked.");
         return;
       }
@@ -508,7 +635,7 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: mode === "menu" || isLikelyMobileRuntime() ? "environment" : "user" },
+          facingMode: { ideal: facingMode },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -527,22 +654,47 @@ export default function App() {
         return;
       }
 
-      setBrowserCameraError(getBrowserCameraErrorMessage(cameraError));
+      const message = getBrowserCameraErrorMessage(cameraError);
+      setBrowserCameraError(message);
+      showManualBarcodeFallback(message);
       setBrowserCameraStatus("Camera access did not start.");
     }
   }
 
-  function handleBrowserScannerClose() {
+  function dismissBrowserScanner() {
+    cameraSessionRef.current += 1;
     stopBrowserCameraStream();
+    void cancelNativeCameraScanner();
+    setIsNativeCameraPreview(false);
     setShowBrowserScanner(false);
     setBrowserCameraError(null);
-    setBrowserCameraStatus("Starting your camera...");
+    setBrowserCameraStatus("Starting camera...");
+  }
+
+  function handleCameraModeChange(nextMode: ScanCameraMode) {
+    if (nextMode === scanCameraMode) return;
+    setScanCameraMode(nextMode);
+    if (!browserCameraStreamRef.current || (nextMode === "barcode" && isTauriRuntime() && isLikelyMobileRuntime())) {
+      void openCamera(nextMode, cameraFacingMode);
+    }
+  }
+
+  function handleCameraFlip() {
+    const facing = cameraFacingMode === "environment" ? "user" : "environment";
+    setCameraFacingMode(facing);
+    void openCamera(scanCameraMode, facing);
+  }
+
+  function closeCamera() {
+    dismissBrowserScanner();
+    setShowScanEntry(!foodScanResult && !menuAnalysis);
   }
 
   function handleBrowserBarcodeDetected(scannedBarcode: string) {
     stopBrowserCameraStream();
+    setIsNativeCameraPreview(false);
     setShowBrowserScanner(false);
-    setShowScanEntry(true);
+    setShowScanEntry(false);
     setFoodScanResult(null);
     setBarcode(scannedBarcode);
     void handleLookup(scannedBarcode);
@@ -569,7 +721,7 @@ export default function App() {
     setError(null);
     setProduct(null);
     setShowScanEntry(false);
-    handleBrowserScannerClose();
+    dismissBrowserScanner();
     setActiveTab("scan");
   }
 
@@ -706,17 +858,11 @@ export default function App() {
     setOnboardingProfile((current) => saveOnboardingProfile({ ...updater(current), completed: false }));
   }
 
-  function handleRestartOnboardingTest() {
-    const nextProfile = createEmptyOnboardingProfile();
-    setOnboardingProfile(saveOnboardingProfile(nextProfile));
+  function reviewProfileSetup() {
+    setOnboardingProfile(saveOnboardingProfile({ ...onboardingProfile, completed: false }));
     setOnboardingStep("welcome");
-    didRecordLoginThisRuntimeDate = null;
-    try {
-      sessionStorage.removeItem(LOGIN_ACTIVITY_SESSION_KEY);
-    } catch {
-      // Session storage is only used to avoid duplicate login activity in a single browser session.
-    }
-    window.location.reload();
+    setProfileView("overview");
+    clearHistoryDetail();
   }
 
   function handleAlternativeAccept(product: Product, alternative: AlternativeProduct) {
@@ -773,6 +919,25 @@ export default function App() {
     setIsHistoryDetailLoading(false);
   }
 
+  if (onboardingStep !== "app") {
+    return (
+      <>
+        <OnboardingFlow
+          step={onboardingStep}
+          profile={onboardingProfile}
+          onBack={handleOnboardingBack}
+          onContinue={handleOnboardingContinue}
+          onSkipOptionalQuestion={handleOnboardingSkip}
+          onAccountNameChange={handleAccountNameChange}
+          onAccountEmailChange={handleAccountEmailChange}
+          onMainGoalToggle={handleMainGoalToggle}
+          onDietPreferenceToggle={handleDietPreferenceToggle}
+          onFoodAvoidanceToggle={handleFoodAvoidanceToggle}
+        />
+      </>
+    );
+  }
+
   function renderHistoryContent(onBack?: () => void): ReactNode {
     return selectedHistoryItem ? (
       <HistoryFoodDetail
@@ -800,27 +965,30 @@ export default function App() {
 
   function renderTabContent(tab: AppTab): ReactNode {
     if (tab === "home" || tab === "scan") {
+      const showDashboardContent = tab === "home" || !product || showScanEntry || foodScanResult || menuAnalysis;
+
       return (
         <>
-          <DashboardScanScreen
-            mode={tab === "scan" ? "scan" : "home"}
-            barcode={barcode}
-            error={error}
-            isLoading={isLoading}
-            showBarcodeEntry={showScanEntry}
-            foodScanResult={foodScanResult}
-            onBarcodeChange={setBarcode}
-            onSubmit={handleSubmit}
-            onScanFoodPress={handleScanFoodPress}
-            menuAnalysis={menuAnalysis}
-            foodsToAvoid={onboardingProfile.foodsToAvoid}
-            onScanMenuPress={() => handleScanMenuPress()}
-            onMenuRescan={() => handleScanMenuPress()}
-            onRestartOnboardingTest={handleRestartOnboardingTest}
-          />
+          {showDashboardContent && (
+            <DashboardScanScreen
+              mode={tab === "scan" ? "scan" : "home"}
+              barcode={barcode}
+              error={error}
+              isLoading={isLoading}
+              showBarcodeEntry={showScanEntry || (!showBrowserScanner && !foodScanResult && !menuAnalysis && !product)}
+              menuAnalysis={menuAnalysis}
+              foodsToAvoid={onboardingProfile.foodsToAvoid}
+              onScanFoodPress={() => startScanSession("food")}
+              onScanMenuPress={() => startScanSession("menu")}
+              foodScanResult={foodScanResult}
+              onBarcodeChange={setBarcode}
+              onSubmit={handleSubmit}
+              onReviewSetup={reviewProfileSetup}
+            />
+          )}
 
           {tab === "scan" && product && qualityScore && (
-            <div ref={scanResultRef} className="mt-5">
+            <div className="scan-results">
               <ProductResult product={product} score={qualityScore} alternatives={alternatives} showAlternatives={false} />
               <div className="mt-5">
                 <SwapScreen
@@ -844,7 +1012,7 @@ export default function App() {
     }
 
     if (tab === "map") {
-      return <MapScreen onScanMenu={handleScanMenuPress} />;
+      return <MapScreen onScanMenu={(restaurant) => startScanSession("menu", restaurant)} />;
     }
 
     if (profileView === "history") {
@@ -860,118 +1028,95 @@ export default function App() {
         onProfileSave={(nextProfile) => {
           setOnboardingProfile(saveOnboardingProfile(nextProfile));
         }}
-        onLogOut={() => {
-          const nextProfile = createEmptyOnboardingProfile();
-          setOnboardingProfile(saveOnboardingProfile(nextProfile));
-          setOnboardingStep("welcome");
-          setProfileView("overview");
-          clearHistoryDetail();
-          setActiveTab("scan");
-        }}
-      />
-    );
-  }
-
-  if (onboardingStep !== "app") {
-    return (
-      <OnboardingFlow
-        step={onboardingStep}
-        profile={onboardingProfile}
-        onBack={handleOnboardingBack}
-        onContinue={handleOnboardingContinue}
-        onSkipOptionalQuestion={handleOnboardingSkip}
-        onAccountNameChange={handleAccountNameChange}
-        onAccountEmailChange={handleAccountEmailChange}
-        onMainGoalToggle={handleMainGoalToggle}
-        onDietPreferenceToggle={handleDietPreferenceToggle}
-        onFoodAvoidanceToggle={handleFoodAvoidanceToggle}
+        onReviewSetup={reviewProfileSetup}
       />
     );
   }
 
   const isMapTab = activeTab === "map";
-  const contentClassName = isMapTab
-    ? "min-h-0 flex-1 overflow-hidden bg-[#DDE8E9]"
-    : "app-scroll-area min-h-0 flex-1 px-5 pb-14 pt-safe-offset";
 
   return (
-    <main className="min-h-[100dvh] bg-cream text-ink">
-      <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
-        <section ref={contentScrollRef} className={contentClassName}>
-          <SwipeableTabViewport
-            activeTab={activeTab}
-            disabled={showBrowserScanner || isMapTab}
-            onTabChange={handleTabChange}
-            renderTab={renderTabContent}
+    <div className="app-shell">
+      <header className="app-masthead">
+        <button type="button" className="app-wordmark" aria-label="BetterBite home" onClick={() => handleTabChange("home")}>
+          <img src="/apple-touch-icon.png" width="38" height="38" alt="" />
+          BetterBite
+        </button>
+      </header>
+      <nav className="app-nav" aria-label="Primary">
+        <div className="app-nav-items">
+          <NavButton
+            testId="nav-home"
+            active={activeTab === "home"}
+            icon={<HeroHomeIcon className="h-[18px] w-[18px]" aria-hidden="true" />}
+            label="Home"
+            onClick={() => handleTabChange("home")}
           />
-        </section>
-
-        <nav className="h-[calc(3.5rem+env(safe-area-inset-bottom))] shrink-0 border-t border-line bg-white/92 px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
-          <div className="grid h-14 grid-cols-5 place-items-center">
-            <NavButton
-              testId="nav-home"
-              active={activeTab === "home"}
-              icon={<House size={21} />}
-              label="Home"
-              onClick={() => handleTabChange("home")}
-            />
-            <NavButton
-              testId="nav-search"
-              active={activeTab === "search"}
-              icon={<Search size={21} />}
-              label="Search"
-              onClick={() => handleTabChange("search")}
-            />
-            <NavButton
-              testId="nav-scan"
-              active={activeTab === "scan"}
-              icon={<Camera size={21} />}
-              label="Scan"
-              onClick={handleScanTabPress}
-            />
-            <NavButton
-              testId="nav-map"
-              active={activeTab === "map"}
-              icon={<MapPin size={21} />}
-              label="Map"
-              onClick={() => handleTabChange("map")}
-            />
-            <NavButton
-              testId="nav-profile"
-              active={activeTab === "profile"}
-              icon={<User size={21} />}
-              label="Profile"
-              onClick={() => handleTabChange("profile")}
-            />
-          </div>
-        </nav>
-
-        {showBrowserScanner && (
-          <BrowserScannerPanel
-            mode={scanCameraMode}
-            stream={browserCameraStream}
-            status={browserCameraStatus}
-            error={browserCameraError}
-            onModeChange={(nextMode) => {
-              if (nextMode === scanCameraMode) return;
-              setScanCameraMode(nextMode);
-              if (nextMode === "menu" || scanCameraMode === "menu") {
-                void startBrowserCameraScanner(nextMode);
-              }
-            }}
-            onClose={() => {
-              setShowScanEntry(!foodScanResult && !menuAnalysis);
-              handleBrowserScannerClose();
-            }}
-            onDetected={handleBrowserBarcodeDetected}
-            onFoodDetected={handleBrowserFoodDetected}
-            onMenuAnalyze={handleMenuAnalyze}
-            restaurantName={menuRestaurantName}
-            onRetry={() => void startBrowserCameraScanner(scanCameraMode)}
+          <NavButton
+            testId="nav-search"
+            active={activeTab === "search"}
+            icon={<HeroMagnifyingGlassIcon className="h-[18px] w-[18px]" aria-hidden="true" />}
+            label="Search"
+            onClick={() => handleTabChange("search")}
           />
-        )}
-      </div>
-    </main>
+          <NavButton
+            testId="nav-scan"
+            active={activeTab === "scan"}
+            icon={<HeroCameraIcon className="h-[18px] w-[18px]" aria-hidden="true" />}
+            label="Scan"
+            onClick={handleScanTabPress}
+          />
+          <NavButton
+            testId="nav-map"
+            active={activeTab === "map"}
+            icon={<HeroMapPinIcon className="h-[18px] w-[18px]" aria-hidden="true" />}
+            label="Map"
+            onClick={() => handleTabChange("map")}
+          />
+          <NavButton
+            testId="nav-profile"
+            active={activeTab === "profile"}
+            icon={<HeroUserIcon className="h-[18px] w-[18px]" aria-hidden="true" />}
+            label="Profile"
+            onClick={() => handleTabChange("profile")}
+          />
+        </div>
+      </nav>
+
+      <main className="app-content">
+        <SwipeableTabViewport
+          activeTab={activeTab}
+          currentPanelRef={contentScrollRef}
+          disabled={showBrowserScanner || isMapTab}
+          onTabChange={handleTabChange}
+          renderTab={renderTabContent}
+        />
+      </main>
+
+      {showBrowserScanner && (
+        <BrowserScannerPanel
+          mode={scanCameraMode}
+          stream={browserCameraStream}
+          nativePreview={isNativeCameraPreview}
+          status={browserCameraStatus}
+          error={browserCameraError}
+          onModeChange={handleCameraModeChange}
+          onClose={closeCamera}
+          onManualEntry={() => {
+            dismissBrowserScanner();
+            setActiveTab("scan");
+            setShowScanEntry(true);
+            setError(null);
+          }}
+          onFlipCamera={handleCameraFlip}
+          onDetected={handleBrowserBarcodeDetected}
+          onFoodDetected={handleBrowserFoodDetected}
+          restaurantName={menuRestaurantName}
+          onMenuAnalyze={handleMenuAnalyze}
+          onRetry={() => void openCamera(scanCameraMode, cameraFacingMode)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -994,9 +1139,9 @@ type SwipeGesture = {
   width: number;
 };
 
-const TAB_SWIPE_SETTLE_MS = 230;
+const TAB_SWIPE_SETTLE_MS = 280;
 const TAB_SWIPE_REDUCED_MOTION_MS = 120;
-const TAB_SWIPE_SCALE_DELTA = 0.06;
+const TAB_SWIPE_SCALE_DELTA = 0.015;
 const TAB_SWIPE_BOUNDARY_RESISTANCE = 0.28;
 const TAB_SWIPE_IGNORE_SELECTOR = [
   "a",
@@ -1013,11 +1158,13 @@ const TAB_SWIPE_IGNORE_SELECTOR = [
 
 function SwipeableTabViewport({
   activeTab,
+  currentPanelRef,
   disabled,
   onTabChange,
   renderTab,
 }: {
   activeTab: AppTab;
+  currentPanelRef: RefObject<HTMLDivElement>;
   disabled: boolean;
   onTabChange: (tab: AppTab) => void;
   renderTab: (tab: AppTab) => ReactNode;
@@ -1036,11 +1183,15 @@ function SwipeableTabViewport({
   const progress = transition ? getSwipeProgress({ offsetX: transition.offsetX, width }) : 0;
   const currentScale = prefersReducedMotion ? 1 : 1 - TAB_SWIPE_SCALE_DELTA * progress;
   const incomingScale = prefersReducedMotion ? 1 : 1 - TAB_SWIPE_SCALE_DELTA + TAB_SWIPE_SCALE_DELTA * progress;
-  const currentOpacity = transition?.target ? 1 - 0.16 * progress : 1;
-  const incomingOpacity = 0.76 + 0.24 * progress;
+  const currentOpacity = transition?.target ? (prefersReducedMotion ? 1 - progress : 1 - 0.08 * progress) : 1;
+  const incomingOpacity = prefersReducedMotion ? progress : 0.9 + 0.1 * progress;
   const transitionCss = transition?.settling
-    ? `transform ${settleDuration}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${settleDuration}ms ease`
+    ? prefersReducedMotion
+      ? `opacity ${settleDuration}ms ease-out`
+      : `transform ${settleDuration}ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out`
     : "none";
+  const renderedTab = displayTab;
+  const isTransitioning = transition !== null;
 
   useEffect(() => {
     const node = viewportRef.current;
@@ -1069,15 +1220,16 @@ function SwipeableTabViewport({
   useEffect(() => {
     return () => {
       clearSettleTimer();
-      cancelPendingAnimationFrame();
+      clearAnimationFrame();
     };
   }, []);
 
   useEffect(() => {
-    if (activeTab === displayTab || gestureRef.current) {
+    if (activeTab === displayTab || transitionRef.current) {
       return;
     }
 
+    gestureRef.current = null;
     const direction = getTabDirection(displayTab, activeTab);
     if (!direction) {
       setDisplayTab(activeTab);
@@ -1085,13 +1237,18 @@ function SwipeableTabViewport({
     }
 
     clearSettleTimer();
-    cancelPendingAnimationFrame();
+    clearAnimationFrame();
     setSwipeTransition({ direction, offsetX: 0, settling: false, target: activeTab });
     animationFrameRef.current = window.requestAnimationFrame(() => {
       animationFrameRef.current = null;
-      settleTransition({ direction, target: activeTab, offsetX: -direction * width, notify: false });
+      settleTransition({
+        direction,
+        target: activeTab,
+        offsetX: -direction * width,
+        notify: false,
+      });
     });
-  }, [activeTab, displayTab, width]);
+  }, [activeTab, displayTab, isTransitioning, width]);
 
   function clearSettleTimer() {
     if (settleTimerRef.current !== null) {
@@ -1100,7 +1257,7 @@ function SwipeableTabViewport({
     }
   }
 
-  function cancelPendingAnimationFrame() {
+  function clearAnimationFrame() {
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -1124,6 +1281,7 @@ function SwipeableTabViewport({
     notify: boolean;
   }) {
     clearSettleTimer();
+    clearAnimationFrame();
     setSwipeTransition({ direction, offsetX, settling: true, target });
     settleTimerRef.current = window.setTimeout(() => {
       setDisplayTab(target);
@@ -1136,6 +1294,7 @@ function SwipeableTabViewport({
 
   function snapBackTransition(direction: TabDirection, target: AppTab | null) {
     clearSettleTimer();
+    clearAnimationFrame();
     setSwipeTransition({ direction, offsetX: 0, settling: true, target });
     settleTimerRef.current = window.setTimeout(() => {
       setSwipeTransition(null);
@@ -1143,7 +1302,7 @@ function SwipeableTabViewport({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (disabled || transitionRef.current?.settling || event.button !== 0 || shouldIgnoreSwipeStart(event.target)) {
+    if (disabled || transitionRef.current || !event.isPrimary || event.button !== 0 || shouldIgnoreSwipeStart(event.target)) {
       return;
     }
 
@@ -1159,7 +1318,7 @@ function SwipeableTabViewport({
       startY: event.clientY,
       lastX: event.clientX,
       lastTime: event.timeStamp,
-      tab: displayTab,
+      tab: renderedTab,
       velocityX: 0,
       width: nodeWidth,
     };
@@ -1183,7 +1342,7 @@ function SwipeableTabViewport({
       }
 
       gesture.axis = "horizontal";
-      viewportRef.current?.setPointerCapture(event.pointerId);
+      event.currentTarget.setPointerCapture(event.pointerId);
     }
 
     event.preventDefault();
@@ -1210,8 +1369,8 @@ function SwipeableTabViewport({
       return;
     }
 
-    if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
-      viewportRef.current.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
     gestureRef.current = null;
@@ -1241,40 +1400,57 @@ function SwipeableTabViewport({
     snapBackTransition(activeTransition.direction, activeTransition.target);
   }
 
-  const currentTransform = `translate3d(${transition?.offsetX ?? 0}px, 0, 0) scale(${currentScale})`;
+  const currentTransform = prefersReducedMotion
+    ? "none"
+    : `translate3d(${transition?.offsetX ?? 0}px, 0, 0) scale(${currentScale})`;
   const incomingTransform =
     transition && transition.target
-      ? `translate3d(${transition.offsetX + transition.direction * width}px, 0, 0) scale(${incomingScale})`
+      ? prefersReducedMotion
+        ? "none"
+        : `translate3d(${transition.offsetX + transition.direction * width}px, 0, 0) scale(${incomingScale})`
       : undefined;
 
   return (
     <div
       ref={viewportRef}
-      className={`relative min-h-full overflow-x-clip overflow-y-visible touch-pan-y ${activeTab === "map" ? "h-full" : ""} ${
-        transition?.settling ? "pointer-events-none" : ""
-      }`}
+      data-testid="swipe-tab-viewport"
+      className="relative h-full min-h-0 overflow-hidden"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerCancel={handlePointerEnd}
+      onPointerCancel={(event) => {
+        const gesture = gestureRef.current;
+        if (gesture?.pointerId !== event.pointerId) return;
+        gestureRef.current = null;
+        const current = transitionRef.current;
+        if (current) snapBackTransition(current.direction, current.target);
+      }}
       onPointerUp={handlePointerEnd}
     >
-      <div
-        key={displayTab}
-        className={`min-h-full origin-center will-change-transform ${displayTab === "map" ? "h-full" : ""}`}
+      <motion.div
+        ref={currentPanelRef}
+        key={renderedTab}
+        data-swipe-panel="current"
+        data-tab={renderedTab}
+        aria-hidden={renderedTab !== activeTab}
+        {...(renderedTab !== activeTab ? { inert: "" } : {})}
+        className={getSwipePanelClassName(renderedTab)}
         style={{
           opacity: currentOpacity,
           transform: currentTransform,
           transition: transitionCss,
         }}
       >
-        {renderTab(displayTab)}
-      </div>
+        {renderTab(renderedTab)}
+      </motion.div>
 
       {transition?.target && (
-        <div
+        <motion.div
           key={transition.target}
           aria-hidden={transition.target !== activeTab}
-          className={`absolute inset-x-0 top-0 min-h-full origin-center will-change-transform ${transition.target === "map" ? "h-full" : ""}`}
+          {...(transition.target !== activeTab ? { inert: "" } : {})}
+          data-swipe-panel="incoming"
+          data-tab={transition.target}
+          className={`absolute inset-x-0 top-0 ${getSwipePanelClassName(transition.target)}`}
           style={{
             opacity: incomingOpacity,
             pointerEvents: "none",
@@ -1283,35 +1459,21 @@ function SwipeableTabViewport({
           }}
         >
           {renderTab(transition.target)}
-        </div>
+        </motion.div>
       )}
     </div>
   );
 }
 
+function getSwipePanelClassName(tab: AppTab): string {
+  const baseClassName = "h-full min-h-0 origin-center will-change-transform";
+  return tab === "map"
+    ? `${baseClassName} overflow-hidden bg-[#DDE8E9]`
+    : `${baseClassName} app-scroll-area app-page`;
+}
+
 function shouldIgnoreSwipeStart(target: EventTarget): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-
-  if (target.closest(TAB_SWIPE_IGNORE_SELECTOR)) {
-    return true;
-  }
-
-  let currentElement: Element | null = target;
-  while (currentElement && currentElement !== document.body) {
-    const style = window.getComputedStyle(currentElement);
-    const canScrollHorizontally =
-      (style.overflowX === "auto" || style.overflowX === "scroll") && currentElement.scrollWidth > currentElement.clientWidth;
-
-    if (canScrollHorizontally) {
-      return true;
-    }
-
-    currentElement = currentElement.parentElement;
-  }
-
-  return false;
+  return target instanceof Element && Boolean(target.closest(TAB_SWIPE_IGNORE_SELECTOR));
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1327,12 +1489,11 @@ function DashboardScanScreen({
   foodScanResult,
   onBarcodeChange,
   onSubmit,
-  onScanFoodPress,
+  onReviewSetup,
   menuAnalysis,
   foodsToAvoid,
+  onScanFoodPress,
   onScanMenuPress,
-  onMenuRescan,
-  onRestartOnboardingTest,
 }: {
   mode: "home" | "scan";
   barcode: string;
@@ -1342,43 +1503,46 @@ function DashboardScanScreen({
   foodScanResult: FoodRecognitionResult | null;
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onScanFoodPress: () => void;
+  onReviewSetup: () => void;
   menuAnalysis: MenuAnalysis | null;
   foodsToAvoid: FoodAvoidance[];
+  onScanFoodPress: () => void;
   onScanMenuPress: () => void;
-  onMenuRescan: () => void;
-  onRestartOnboardingTest: () => void;
 }) {
   const isScanMode = mode === "scan";
-  const introTitle = isScanMode ? (foodScanResult ? "Food scan" : "Scan a barcode") : "Hello, Alex!";
-  const introCopy = isScanMode
-    ? (foodScanResult ? "Here’s what your camera recognized." : "Point your package barcode at the camera to see cleaner swaps.")
-    : "Ready to make healthy choices today?";
+  const [selectedRecommendedFood, setSelectedRecommendedFood] = useState<RecommendedFood | null>(null);
+  const [showAllFoods, setShowAllFoods] = useState(false);
+
+  const modalRoot = typeof document === "undefined" ? null : document.body;
+
+  function handleRecommendedFoodSelect(food: RecommendedFood) {
+    setSelectedRecommendedFood(food);
+  }
+
+  function handleRecommendedFoodClose() {
+    setSelectedRecommendedFood(null);
+  }
 
   return (
-    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-6">
-      {(!isScanMode || !menuAnalysis) && <section className="px-5 pt-5">
-        <h2 className="text-[28px] font-black leading-9 text-[#191C1D]">{introTitle}</h2>
-        <p className="mt-0.5 text-[16px] font-medium leading-6 text-[#3B4949]">{introCopy}</p>
-      </section>}
-
+    <div className={isScanMode ? "py-2" : "food-dashboard"}>
       {!isScanMode && (
-        <section className="pt-9">
-          <div className="mb-3 flex items-end justify-between px-5">
-            <h2 className="text-[24px] font-black leading-8 text-[#191C1D]">Recommended for You</h2>
-            <button className="pb-1 text-[14px] font-bold text-[#00696B] transition hover:text-[#004F51]" type="button">
-              View all
+        <section aria-label="Recommended for You">
+          <div className="food-dashboard__heading">
+            <h2>Recommended for You</h2>
+            <button className="food-dashboard__view" type="button" aria-expanded={showAllFoods} onClick={() => setShowAllFoods(!showAllFoods)}>
+              {showAllFoods ? "Show less" : "View all"}
+              <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>
-          <div className="flex gap-6 overflow-x-auto px-5 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="food-catalog" data-expanded={showAllFoods} data-swipe-ignore="true">
             {RECOMMENDED_FOODS.map((item) => (
-              <RecommendedFoodCard key={item.name} item={item} />
+              <RecommendedFoodCard key={item.name} item={item} onSelect={handleRecommendedFoodSelect} />
             ))}
           </div>
         </section>
       )}
 
-      {isScanMode && (showBarcodeEntry || error) && (
+      {isScanMode && showBarcodeEntry && (
         <DashboardLookupPanel
           barcode={barcode}
           error={error}
@@ -1388,28 +1552,36 @@ function DashboardScanScreen({
         />
       )}
 
+      {isScanMode && menuAnalysis && <MenuResults analysis={menuAnalysis} foodsToAvoid={foodsToAvoid} onRescan={onScanMenuPress} />}
       {isScanMode && foodScanResult && <FoodScanResultCard result={foodScanResult} />}
-      {isScanMode && menuAnalysis && (
-        <MenuResults analysis={menuAnalysis} foodsToAvoid={foodsToAvoid} onRescan={onMenuRescan} />
-      )}
 
       {!isScanMode && (
-        <section className="space-y-3 px-5 pt-5">
-          <HomeActionButton imageSrc={menuPhoto} label="Scan Menu" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanMenuPress} />
-          <HomeActionButton imageSrc={foodPhoto} label="Scan Food" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanFoodPress} />
+        <section className="food-dashboard__recipe">
+          <HomeActionButton imageSrc={menuPhoto} label="Scan Menu" icon={<Camera size={19} />} onClick={onScanMenuPress} />
+          <HomeActionButton imageSrc={foodPhoto} label="Scan Food" icon={<Apple size={19} />} onClick={onScanFoodPress} />
           <HomeActionButton imageSrc={recipeBuilderPhoto} label="Recipe Builder" icon={<FileText size={19} strokeWidth={2.5} />} />
         </section>
       )}
 
+      {modalRoot &&
+        selectedRecommendedFood &&
+        createPortal(
+          <RecommendedFoodDetailSheet
+            item={selectedRecommendedFood}
+            onClose={handleRecommendedFoodClose}
+          />,
+          modalRoot,
+        )}
+
       {!isScanMode && (
-        <section className="px-5 pt-7">
+        <section className="food-dashboard__tools">
           <button
             type="button"
-            className="mx-auto flex min-h-9 items-center justify-center gap-2 rounded-full border border-[#B7D7D2] bg-white/80 px-4 text-[12px] font-black uppercase tracking-[0.12em] text-[#00696B] shadow-[0_6px_16px_rgba(0,105,107,0.08)] transition hover:bg-[#DDF7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-            onClick={onRestartOnboardingTest}
+            className="food-dashboard__reset"
+            onClick={onReviewSetup}
           >
             <RefreshCw size={14} strokeWidth={2.6} />
-            Test onboarding
+            Review setup
           </button>
         </section>
       )}
@@ -1428,6 +1600,9 @@ function BrowserScannerPanel({
   onFoodDetected,
   onMenuAnalyze,
   restaurantName,
+  nativePreview,
+  onManualEntry,
+  onFlipCamera,
   onRetry,
 }: {
   mode: ScanCameraMode;
@@ -1440,6 +1615,9 @@ function BrowserScannerPanel({
   onFoodDetected: (result: FoodRecognitionResult) => void;
   onMenuAnalyze: (pages: MenuPageUpload[], signal: AbortSignal) => Promise<void>;
   restaurantName?: string;
+  nativePreview: boolean;
+  onManualEntry: () => void;
+  onFlipCamera: () => void;
   onRetry: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1454,7 +1632,16 @@ function BrowserScannerPanel({
     };
   }, []);
 
+  const shutterOverlayRef = useRef<HTMLDivElement>(null);
   const scanTimerRef = useRef(0);
+  const scanNowRef = useRef<(() => void) | null>(null);
+  const [barcodeHelp, setBarcodeHelp] = useState(false);
+  useEffect(() => {
+    setBarcodeHelp(false);
+    if (mode !== "barcode" || error || (!stream && !nativePreview)) return;
+    const timer = window.setTimeout(() => setBarcodeHelp(true), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [mode, error, stream, nativePreview]);
   const [shareFrames, setShareFrames] = useState(false);
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -1463,7 +1650,6 @@ function BrowserScannerPanel({
   const lastFoodDetectionKeyRef = useRef<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [foodRecognitionStatus, setFoodRecognitionStatus] = useState("Point the camera at a food.");
-  const [foodRecognitionResult, setFoodRecognitionResult] = useState<FoodRecognitionResult | null>(null);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -1512,7 +1698,6 @@ function BrowserScannerPanel({
     const controller = new AbortController();
     stopDetection();
     setLocalError(null);
-    setFoodRecognitionResult(null);
     lastFoodDetectionKeyRef.current = null;
     const isBarcodeMode = mode === "barcode";
     const video = videoRef.current;
@@ -1520,6 +1705,7 @@ function BrowserScannerPanel({
     if (!stream || !video || mode === "menu" || (mode === "food" && !shareFrames)) return;
     const detector = isBarcodeMode ? createBrowserBarcodeDetector() : null;
 
+    let scanning = false;
     const scheduleNextScan = (delay: number) => {
       if (requestIdRef.current === requestId) {
         scanTimerRef.current = window.setTimeout(scanLoop, delay);
@@ -1527,15 +1713,15 @@ function BrowserScannerPanel({
     };
 
     const scanLoop = async () => {
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
+      if (requestIdRef.current !== requestId || scanning) return;
+      stopDetection();
 
       if (!videoRef.current || videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         scheduleNextScan(180);
         return;
       }
 
+      scanning = true;
       try {
         if (isBarcodeMode) {
           if (!detector) {
@@ -1563,7 +1749,6 @@ function BrowserScannerPanel({
 
           if (foodResult) {
             const resultKey = `${foodResult.label}:${Math.round(foodResult.score * 1000)}`;
-            setFoodRecognitionResult(foodResult);
             setFoodRecognitionStatus(`Found ${foodResult.label}.`);
             if (lastFoodDetectionKeyRef.current !== resultKey) {
               lastFoodDetectionKeyRef.current = resultKey;
@@ -1571,7 +1756,6 @@ function BrowserScannerPanel({
             }
           } else {
             lastFoodDetectionKeyRef.current = null;
-            setFoodRecognitionResult(null);
             setFoodRecognitionStatus(`No confident food match yet. Need ${Math.round(FOOD_RECOGNITION_MIN_SCORE * 100)}% confidence.`);
           }
         }
@@ -1582,7 +1766,6 @@ function BrowserScannerPanel({
 
         if (!isBarcodeMode) {
           lastFoodDetectionKeyRef.current = null;
-          setFoodRecognitionResult(null);
           setRecognitionError(getFoodRecognitionErrorMessage(detectError));
           setShareFrames(false);
           return;
@@ -1591,15 +1774,19 @@ function BrowserScannerPanel({
           stopDetection();
           return;
         }
+      } finally {
+        scanning = false;
       }
 
       scheduleNextScan(isBarcodeMode ? 180 : 1400);
     };
 
+    scanNowRef.current = scanLoop;
     scheduleNextScan(isBarcodeMode ? 180 : 700);
 
     return () => {
       requestIdRef.current += 1;
+      scanNowRef.current = null;
       controller.abort();
       stopDetection();
     };
@@ -1621,101 +1808,59 @@ function BrowserScannerPanel({
     : "Food recognition sends camera frames to Hugging Face while it is on.");
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="fixed inset-0 m-auto flex h-[100dvh] max-h-none w-full max-w-[430px] flex-col overflow-hidden bg-black p-0 text-white backdrop:bg-black/50 md:h-[900px] md:max-h-[calc(100dvh-3rem)] md:rounded-[34px]"
-      onCancel={(event) => { event.preventDefault(); onClose(); }}
-      aria-label={panelTitle}
-    >
-      <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" autoPlay muted playsInline />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.64)_0%,rgba(0,0,0,0.18)_40%,rgba(0,0,0,0.74)_100%)]" />
-
-      <header className="relative z-10 flex shrink-0 flex-col items-start px-5 pt-[calc(env(safe-area-inset-top)+18px)]">
-        <button
-          className="shrink-0 rounded-full border border-white/25 bg-black/30 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-white/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          type="button"
-          onClick={onClose}
-        >
-          Close
-        </button>
-        <div className="mt-5 min-w-0">
-          <div className="inline-flex rounded-full border border-white/18 bg-black/34 p-1 shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-md">
-            <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => switchMode("barcode")} />
-            <ScanModeButton active={mode === "food"} label="Scan food" onClick={() => onModeChange("food")} />
-            <ScanModeButton active={isMenuMode} label="Menu" onClick={() => switchMode("menu")} />
-          </div>
+    <dialog ref={dialogRef} className={`camera-screen fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 text-white ${nativePreview ? "bg-transparent" : "bg-[#101b18]"}`}
+      onCancel={(event) => { event.preventDefault(); onClose(); }} aria-label={panelTitle}>
+      <header className="camera-toolbar">
+        <h1 className="camera-title">{panelTitle}</h1>
+        <div className="flex flex-wrap justify-center gap-1" aria-label="Scan mode" role="group">
+          <ScanModeButton active={isBarcodeMode} label="Barcode" onClick={() => switchMode("barcode")} />
+          <ScanModeButton active={mode === "food"} label="Food" onClick={() => switchMode("food")} />
+          <ScanModeButton active={isMenuMode} label="Menu" onClick={() => switchMode("menu")} />
         </div>
-        {isMenuMode && restaurantName && (
-          <p className="mt-2 max-w-full truncate rounded-full bg-black/60 px-3 py-1.5 text-xs font-black text-white backdrop-blur">
-            {restaurantName}
-          </p>
-        )}
+        <button type="button" aria-label="Switch camera" className="grid h-11 w-11 place-items-center rounded-full border border-white/35" onClick={onFlipCamera}>
+          <SwitchCamera size={22} />
+        </button>
       </header>
-
-      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6">
-        {isBarcodeMode && (
-          <div
-            className="h-[132px] w-[min(82vw,340px)] rounded-[24px] border-[3px] border-dashed border-white/85 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]"
-            aria-hidden="true"
-          />
-        )}
-        {isMenuMode && (
-          <div className="h-[52vh] max-h-[520px] w-[min(82vw,350px)] rounded-[24px] border-[3px] border-dashed border-white/85 shadow-[0_0_0_9999px_rgba(0,0,0,0.12)]" aria-hidden="true" />
+      <div className={`camera-viewfinder flex flex-col ${nativePreview ? "bg-transparent shadow-[0_0_0_9999px_#101b18]" : "bg-[#101010]"}`} data-testid="custom-camera-preview">
+        {!nativePreview && <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" autoPlay muted playsInline />}
+        {!nativePreview && !stream && !displayError && <Loader2 aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -ml-3 -mt-3 motion-safe:animate-spin" />}
+        {isBarcodeMode && <div aria-hidden="true" ref={shutterOverlayRef} className="pointer-events-none absolute inset-0 z-30 bg-white opacity-0 motion-reduce:hidden" />}
+        {isMenuMode ? (
+          <>
+            <button type="button" aria-label="Close camera" className="relative z-10 m-2 h-11 w-11 shrink-0 rounded-full bg-black/70" onClick={onClose}><ChevronLeft className="mx-auto" /></button>
+            <MenuCaptureControls videoRef={videoRef} cameraReady={Boolean(stream) && !displayError} cameraError={displayError} onRetry={onRetry} onAnalyze={onMenuAnalyze} />
+          </>
+        ) : (
+          <>
+            {!displayError && <div className="absolute inset-x-3 top-3 z-10 text-center">
+              <p className="mx-auto max-w-sm rounded-xl bg-black/75 px-3 py-2 text-sm" role="status">{panelStatus}</p>
+              {isBarcodeMode && barcodeHelp && <button type="button" className="mt-2 min-h-10 rounded-full bg-white px-4 font-semibold text-black" onClick={() => switchMode("food")}>Scan food instead</button>}
+            </div>}
+            {isBarcodeMode && !displayError && <div className="pointer-events-none absolute left-1/2 top-1/2 h-[24%] w-[76%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border-2 border-white/65" aria-hidden="true" />}
+            {displayError && <div className="camera-error" role="alert">
+              <p>{displayError}</p>
+              <button type="button" className="min-h-11 px-2 underline" onClick={onRetry}>Try camera again</button>
+              <button type="button" className="min-h-11 px-2 underline" onClick={onManualEntry}>Enter barcode</button>
+            </div>}
+            <div className="camera-actions">
+              <button type="button" aria-label="Close camera" className="grid h-11 w-11 place-items-center rounded-full border border-white/35 bg-black/70" onClick={onClose}><ChevronLeft /></button>
+              {isBarcodeMode ? (
+                <button type="button" aria-label="Scan barcode now" className="mx-auto h-16 w-16 rounded-full border-4 border-gray-400 bg-white active:scale-95" onClick={() => {
+                  shutterOverlayRef.current?.animate?.([{ opacity: 0.45 }, { opacity: 0 }], 120);
+                  if (displayError) onRetry();
+                  else if (nativePreview) setBarcodeHelp(true);
+                  else scanNowRef.current?.();
+                }} />
+              ) : (
+                <button type="button" className="mx-auto min-h-12 rounded-full bg-white px-4 py-2 text-sm font-bold text-black" disabled={!stream || !!displayError} onClick={() => { setRecognitionError(null); setShareFrames(!shareFrames); }}>
+                  {shareFrames ? "Stop food recognition" : "Start food recognition"}
+                </button>
+              )}
+              {isBarcodeMode && <button type="button" aria-label="Enter barcode manually" className="grid h-11 w-11 place-items-center rounded-full bg-black/70" onClick={onManualEntry}><Barcode size={22} /></button>}
+            </div>
+          </>
         )}
       </div>
-
-      {!isMenuMode && !displayError && (
-        <div className="relative z-10 mt-auto px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
-          <div className="rounded-[16px] border border-white/14 bg-black/42 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.32)] backdrop-blur-md">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
-                {isBarcodeMode || foodRecognitionResult || !shareFrames ? <CheckCircle2 size={17} /> : <Loader2 className="animate-spin" size={17} />}
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-white/72">{isBarcodeMode ? "Barcode scanner" : "Food scanner"}</p>
-                <p className="mt-1 text-sm font-semibold leading-5 text-white">{panelStatus}</p>
-                {!isBarcodeMode && stream && (
-                  <button
-                    type="button"
-                    className="mt-3 min-h-11 rounded-full bg-white px-4 text-sm font-bold text-[#063F41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                    onClick={() => {
-                      setRecognitionError(null);
-                      setShareFrames(!shareFrames);
-                    }}
-                  >
-                    {shareFrames ? "Stop food recognition" : recognitionError ? "Retry food recognition" : "Start food recognition"}
-                  </button>
-                )}
-                {!isBarcodeMode && foodRecognitionResult && (
-                  <p className="mt-1 text-xs font-bold capitalize leading-4 text-white/68">
-                    {foodRecognitionResult.label} · {Math.round(foodRecognitionResult.score * 100)}%
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isMenuMode && <MenuCaptureControls videoRef={videoRef} cameraReady={Boolean(stream) && !displayError} cameraError={displayError} onRetry={onRetry} onAnalyze={onMenuAnalyze} />}
-
-      {displayError && !isMenuMode && (
-        <div className="relative z-10 px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
-          <div className="rounded-[14px] bg-[#FFD9D4] px-3 py-2 text-sm font-semibold text-[#7A1F13] shadow-[0_18px_40px_rgba(0,0,0,0.32)]">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 shrink-0" size={16} />
-              <span>{displayError}</span>
-            </div>
-            <button
-              type="button"
-              className="mt-3 inline-flex h-10 items-center justify-center rounded-[10px] bg-[#8A1F15] px-4 text-sm font-black text-white transition hover:bg-[#6F170F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8A1F15]/35"
-              onClick={onRetry}
-            >
-              Try camera again
-            </button>
-          </div>
-        </div>
-      )}
     </dialog>
   );
 }
@@ -1737,15 +1882,15 @@ function ScanModeButton({ active, label, onClick }: { active: boolean; label: st
 
 function FoodScanResultCard({ result }: { result: FoodRecognitionResult }) {
   return (
-    <section className="px-5 pt-5">
-      <div className="rounded-[18px] border border-[#BFE6D9] bg-white px-4 py-4 shadow-[0_8px_24px_rgba(0,105,107,0.08)]">
+    <section className="mx-auto max-w-2xl pt-5">
+      <div className="bento-card p-5">
         <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#DDF7EF] text-[#00696B]">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-oat text-leaf">
             <CheckCircle2 size={22} strokeWidth={2.7} />
           </span>
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#00696B]">Food recognized</p>
-            <h3 className="mt-1 text-[21px] font-black capitalize leading-6 text-[#191C1D]">{result.label}</h3>
+            <h3 className="mt-1 record-subtitle capitalize">{result.label}</h3>
             <p className="mt-1 text-[13px] font-semibold leading-5 text-[#566164]">
               Matched with {Math.round(result.score * 100)}% confidence using {result.model}.
             </p>
@@ -1756,51 +1901,130 @@ function FoodScanResultCard({ result }: { result: FoodRecognitionResult }) {
   );
 }
 
-function RecommendedFoodCard({
-  item,
-}: {
-  item: {
-    name: string;
-    detail: string;
-    score: string;
-    imageSrc: string;
-  };
-}) {
+function RecommendedFoodPhoto({ item }: { item: RecommendedFood }) {
   return (
-    <button
-      type="button"
-      className="w-64 shrink-0 overflow-hidden rounded-xl border border-[#DDE8E9] bg-white text-left shadow-[0_4px_18px_rgba(0,105,107,0.06)] transition active:scale-[0.98]"
-    >
-      <div className="relative flex h-44 items-center justify-center overflow-hidden bg-white">
-        <img className="h-full w-full object-contain p-4 transition duration-300 hover:scale-[1.03]" src={item.imageSrc} alt="" />
-        <span className="absolute right-3 top-3 rounded-full bg-[#AEEED8] px-3 py-1 text-[12px] font-bold leading-4 text-[#316D5B]">
-          {item.score}
-        </span>
-      </div>
-      <div className="px-3 py-3">
-        <h3 className="truncate text-[15px] font-semibold leading-5 text-[#191C1D]">{item.name}</h3>
-        <p className="truncate text-[13px] font-medium leading-4 text-[#3B4949]">{item.detail}</p>
+    <div className="food-packshot" data-scene={item.imageSrc === olipopColaPhoto || item.imageSrc === lesserEvilPopcornPhoto}>
+      <img src={item.imageSrc} alt="" />
+      <span className="food-packshot__score"><span className="sr-only">BetterBite score </span>{item.score}</span>
+    </div>
+  );
+}
+
+function RecommendedFoodCard({ item, onSelect }: { item: RecommendedFood; onSelect: (item: RecommendedFood) => void }) {
+  return (
+    <button type="button" className="food-catalog__card" onClick={() => onSelect(item)}>
+      <RecommendedFoodPhoto item={item} />
+      <div className="food-catalog__caption">
+        <p>{item.detail}</p>
+        <h3>{item.name}</h3>
       </div>
     </button>
   );
 }
 
+function RecommendedFoodDetailSheet({
+  item,
+  onClose,
+}: {
+  item: RecommendedFood;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [showStores, setShowStores] = useState(false);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+
+  return (
+    <dialog ref={dialogRef} className="food-detail" aria-labelledby="recommendation-title" onClose={onClose}>
+      <header className="food-detail__heading">
+        <div>
+          <p className="food-detail__label">Recommended pick</p>
+          <h2 id="recommendation-title">{item.name}</h2>
+        </div>
+        <button type="button" className="food-detail__close" aria-label="Close recommendation details" onClick={() => dialogRef.current?.close()}>
+          <CircleX size={22} />
+        </button>
+      </header>
+      <div className="food-detail__body">
+        <div className="food-detail__product">
+          <RecommendedFoodPhoto item={item} />
+          <div className="flex items-start justify-between gap-2 border-t border-[#dce2d9] p-4">
+            <div>
+              <p className="text-sm font-semibold">{item.detail}</p>
+              <p className="mt-1 text-xs text-[#52645e]">{item.serving}</p>
+            </div>
+            <span className="text-sm font-bold text-[#075a53]">Est. {item.price}</span>
+          </div>
+        </div>
+        <section>
+          <h3 className="food-detail__label">Nutrition</h3>
+          <dl className="food-detail__nutrition">
+            <NutritionStat label="Calories" value={String(item.calories)} />
+            <NutritionStat label="Protein" value={item.macros.protein} />
+            <NutritionStat label="Carbs" value={item.macros.carbs} />
+            <NutritionStat label="Fat" value={item.macros.fat} />
+            <NutritionStat label="Fiber" value={item.macros.fiber} />
+            <NutritionStat label="Sugar" value={item.macros.sugar} />
+          </dl>
+        </section>
+        <section>
+          <h3 className="food-detail__label">Ingredients</h3>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {item.ingredients.map((ingredient) => (
+              <li key={ingredient} className="rounded-full bg-[#e9eee4] px-3 py-1.5 text-xs font-medium">{ingredient}</li>
+            ))}
+          </ul>
+        </section>
+        <section className="food-detail__stores">
+          <div className="flex items-start gap-3">
+            <MapPin className="mt-1 shrink-0 text-[#075a53]" size={20} />
+            <div>
+              <h3 className="text-lg font-semibold">Nearby stores</h3>
+              <p className="mt-1 text-sm leading-relaxed text-[#52645e]">Sample stores, distances and stock for this product.</p>
+            </div>
+          </div>
+          <button className="food-detail__location" type="button" aria-expanded={showStores} onClick={() => setShowStores(!showStores)}>
+            <Navigation size={17} />{showStores ? "Hide sample stores" : "Show sample stores"}
+          </button>
+          {showStores && (
+            <ul className="mt-4 divide-y divide-[#dce2d9]">
+              {item.stores.map((store) => (
+                <li key={store.name} className="flex items-start justify-between gap-3 py-3">
+                  <div>
+                    <p className="text-sm font-semibold">{store.name}</p>
+                    <p className="mt-1 text-xs text-[#52645e]">{store.distance} · {store.aisle}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#e9eee4] px-2.5 py-1 text-xs font-semibold text-[#075a53]">{store.stock}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </dialog>
+  );
+}
+
+function NutritionStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col-reverse gap-1 py-2">
+      <dt className="text-xs text-[#52645e]">{label}</dt>
+      <dd className="text-lg font-semibold text-[#172f29]">{value}</dd>
+    </div>
+  );
+}
+
 function HomeActionButton({ imageSrc, label, icon, onClick }: { imageSrc: string; label: string; icon: ReactNode; onClick?: () => void }) {
   return (
-    <button
-      type="button"
-      className="group flex h-[96px] w-full items-center overflow-hidden rounded-[18px] border border-[#D6E5E4] bg-white text-left shadow-[0_10px_28px_rgba(0,105,107,0.09)] transition hover:border-[#86CFCB] hover:shadow-[0_14px_32px_rgba(0,105,107,0.13)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-      onClick={onClick}
-    >
-      <span className="h-full w-[122px] shrink-0 overflow-hidden bg-[#EAF4EE]">
-        <img className="h-full w-full object-cover transition duration-300 group-hover:scale-105" src={imageSrc} alt="" />
+    <button type="button" className="food-recipe" disabled={!onClick} onClick={onClick}>
+      <span className="food-recipe__caption">
+        <span className="food-recipe__icon">{icon}</span>
+        <span>{label}</span>
       </span>
-      <span className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4">
-        <span className="text-[20px] font-black leading-6 text-[#191C1D]">{label}</span>
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_20px_rgba(0,105,107,0.22)]">
-          {icon}
-        </span>
-      </span>
+      <img className="food-recipe__image" src={imageSrc} alt="" />
     </button>
   );
 }
@@ -1819,7 +2043,8 @@ function DashboardLookupPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <form className="mx-5 mt-4 rounded-2xl border border-[#DDE8E9] bg-white/82 p-4 shadow-[0_8px_24px_rgba(0,105,107,0.08)] backdrop-blur" onSubmit={onSubmit}>
+    <form className="bento-card mx-auto mt-6 max-w-2xl p-5" onSubmit={onSubmit}>
+      {error && <p className="mb-2 text-[15px] font-black leading-5 text-[#063F41]">Barcode not found</p>}
       <label className="text-[11px] font-black uppercase leading-4 tracking-[0.18em] text-[#00696B]" htmlFor="dashboard-barcode">
         UPC or EAN
       </label>
@@ -1827,14 +2052,14 @@ function DashboardLookupPanel({
         <input
           id="dashboard-barcode"
           inputMode="numeric"
-          className="min-w-0 flex-1 rounded-[14px] border border-[#D9E4E5] bg-[#F8FAFB] px-4 py-3 text-base font-bold text-[#1F2629] outline-none transition placeholder:text-[#667080] focus:border-[#00C5C8] focus:ring-2 focus:ring-[#00C5C8]/20"
+          className="min-w-0 flex-1 rounded-[14px] border border-[#D9E4E5] bg-cream px-4 py-3 text-base font-bold text-[#1F2629] outline-none transition placeholder:text-[#667080] focus:border-[#00C5C8] focus:ring-2 focus:ring-[#00C5C8]/20"
           placeholder="5449000000996"
           value={barcode}
           onChange={(event) => onBarcodeChange(event.target.value)}
         />
         <button
           type="submit"
-          className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[14px] bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 disabled:opacity-60"
+          className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[14px] bg-leaf text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 disabled:opacity-60"
           disabled={isLoading}
           aria-label="Search barcode"
         >
@@ -1842,7 +2067,7 @@ function DashboardLookupPanel({
         </button>
       </div>
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-[10px] bg-[#DDF7EF] px-3 py-2 text-sm font-semibold text-[#00696B]">
+        <div className="mt-3 flex items-start gap-2 rounded-[10px] bg-[#fff0eb] px-3 py-2 text-sm font-medium text-[#823920]">
           <AlertTriangle className="mt-0.5 shrink-0" size={16} />
           <span>{error}</span>
         </div>
@@ -1852,16 +2077,13 @@ function DashboardLookupPanel({
 }
 
 function DashboardStatCard({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone: "blue" | "green" }) {
-  const colors =
-    tone === "blue"
-      ? "border-[#8BC3CA]/45 bg-white text-[#2D666D]"
-      : "border-[#AEEED8]/55 bg-white text-[#2C6956]";
+  const iconColor = tone === "blue" ? "bg-[#e5eef0] text-[#315c64]" : "bg-oat text-leaf";
 
   return (
-    <div className={`min-h-[122px] rounded-2xl border px-6 py-[22px] ${colors}`}>
-      <div className="mb-5">{icon}</div>
-      <p className="text-[12px] font-bold leading-4">{label}</p>
-      <p className="mt-0.5 text-[14px] font-black leading-5 text-[#191C1D]">{value}</p>
+    <div className="min-w-0 rounded-2xl border border-line bg-white p-4 sm:p-5">
+      <div className={`mb-4 grid h-10 w-10 place-items-center rounded-full ${iconColor}`}>{icon}</div>
+      <p className="text-xs font-medium leading-5 text-muted">{label}</p>
+      <p className="mt-1 break-words text-lg font-semibold leading-6 tracking-tight text-ink">{value}</p>
     </div>
   );
 }
@@ -1913,25 +2135,26 @@ function HistoryScreen({
   const isSwapFilter = filter === "swaps";
 
   return (
-    <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-10">
-      <div className="px-5 pb-2 pt-8">
+    <div className="record-page">
+      <div className="pb-2">
         {onBack && (
           <button
             type="button"
-            className="mb-5 flex min-h-10 items-center gap-2 rounded-full border border-[#DDE8E9] bg-white px-4 text-[13px] font-black text-[#00696B] shadow-[0_6px_16px_rgba(0,105,107,0.06)] transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+            className="record-back"
+            aria-label="Back to profile"
             onClick={onBack}
           >
             <ChevronLeft size={17} strokeWidth={2.6} />
             Profile
           </button>
         )}
-        <h2 className="text-[32px] font-black leading-tight text-[#191C1D]">My Scans</h2>
-        <p className="mt-1 text-[18px] font-medium leading-7 text-[#3B4949]">Review your nutritional history</p>
+        <h2 className="record-title">My Scans</h2>
+        <p className="mt-2 text-base leading-6 text-muted">Review your nutritional history</p>
       </div>
 
-      <div className="sticky top-0 z-10 border-b border-[#BAC9C9]/40 bg-[#F8FAFB]/90 px-5 pt-5 backdrop-blur">
-        <div className="-mx-5 overflow-x-auto px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex min-w-max gap-10">
+      <div className="sticky top-0 z-10 border-b border-line bg-cream py-2">
+        <div className="overflow-x-auto">
+          <div className="flex min-w-max gap-1">
             <HistoryFilterButton active={filter === "all"} label="All" onClick={() => onFilterChange("all")} />
             <HistoryFilterButton active={filter === "saved"} label="Saved" onClick={() => onFilterChange("saved")} />
             <HistoryFilterButton active={filter === "this-week"} label="This Week" onClick={() => onFilterChange("this-week")} />
@@ -1940,7 +2163,7 @@ function HistoryScreen({
         </div>
       </div>
 
-      <div className="space-y-4 px-5 pt-10">
+      <div className="mt-5 space-y-4">
         {isSwapFilter ? (
           savedSwapGroups.length > 0 ? (
             <HistorySwapsList groups={savedSwapGroups} onSavedSwapSelect={onSavedSwapSelect} />
@@ -1967,10 +2190,10 @@ function HistoryScreen({
 
 function HistoryEmptyState({ icon, title, copy }: { icon: ReactNode; title: string; copy: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="flex h-20 w-20 items-center justify-center rounded-[22px] bg-[#DDF7EF] text-[#00696B]">{icon}</div>
-      <h3 className="mt-5 text-2xl font-black text-[#191C1D]">{title}</h3>
-      <p className="mt-2 max-w-[280px] text-sm font-semibold leading-6 text-[#566164]">{copy}</p>
+    <div className="bento-card flex flex-col items-center justify-center px-5 py-12 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-oat text-leaf">{icon}</div>
+      <h3 className="mt-5 record-subtitle">{title}</h3>
+      <p className="mt-2 max-w-[280px] text-sm leading-6 text-muted">{copy}</p>
     </div>
   );
 }
@@ -1983,14 +2206,14 @@ function HistorySwapsList({
   onSavedSwapSelect: (item: SavedSwapHistoryItem) => void;
 }) {
   return (
-    <div className="space-y-5">
+    <div className="record-list">
       {groups.map((group) => (
-        <section key={group.barcode} className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/75 shadow-[0_4px_20px_rgba(0,105,107,0.08)] backdrop-blur">
-          <div className="flex items-center gap-3 bg-[#EEF7F8] p-3">
+        <section key={group.barcode} className="bento-card overflow-hidden">
+          <div className="flex items-center gap-3 bg-oat p-3">
             <HistoryThumb imageUrl={group.scannedProduct.imageUrl} name={group.scannedProduct.name} />
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#00696B]">Scanned item</p>
-              <h3 className="mt-1 truncate text-[17px] font-black leading-6 text-[#191C1D]">{group.scannedProduct.name}</h3>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00696B]">Scanned item</p>
+              <h3 className="mt-1 truncate text-[17px] font-semibold leading-6 text-[#191C1D]">{group.scannedProduct.name}</h3>
               <p className="truncate text-[13px] font-semibold leading-5 text-[#3B4949]">
                 {group.scannedProduct.brand ? `${group.scannedProduct.brand} - ` : ""}
                 {formatCompactHistoryDateTime(group.scannedProduct.scannedAt)}
@@ -2011,32 +2234,33 @@ function HistorySwapsList({
 }
 
 function SavedSwapHistoryRow({ item, onSelect }: { item: SavedSwapHistoryItem; onSelect: () => void }) {
+  const photo = alternativeImageFor(item.swap);
   const swapName = item.swap.brand ? `${item.swap.brand} ${item.swap.name}` : item.swap.name;
   const meta = item.swap.brand ? `${item.swap.brand} - ${item.swap.category}` : item.swap.category;
 
   return (
     <button
       type="button"
-      className="grid w-full grid-cols-[52px_minmax(0,1fr)] gap-3 rounded-[10px] border border-[#DDE8E9] bg-white p-3 text-left transition hover:bg-[#F8FAFB] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+      className="grid w-full grid-cols-[52px_minmax(0,1fr)] gap-3 rounded-[10px] border border-[#DDE8E9] bg-white p-3 text-left transition hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onSelect}
       aria-label={`View saved swap ${swapName}`}
     >
-      <div className="flex h-[52px] w-[52px] items-center justify-center rounded-[10px] bg-[#DDF7EF] text-[#00696B]">
-        <Apple size={24} strokeWidth={1.9} />
+      <div className="flex h-[52px] w-[52px] items-center justify-center rounded-[10px] bg-oat text-leaf">
+        {photo ? <img className="h-full w-full rounded-[10px] object-contain" src={photo} alt="" /> : <Apple size={24} strokeWidth={1.9} />}
       </div>
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 truncate text-[10px] font-black uppercase leading-4 tracking-[0.14em] text-[#00696B]">{meta}</p>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#DDE8E9] bg-[#F8FAFB] px-2 py-0.5 text-[11px] font-black text-[#191C1D]">
+          <p className="min-w-0 truncate text-[10px] font-semibold uppercase leading-4 tracking-[0.14em] text-leaf">{meta}</p>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#DDE8E9] bg-cream px-2 py-0.5 text-[11px] font-semibold text-ink">
             <DollarSign size={11} />
             Est. {item.swap.estimatedPrice}
           </span>
         </div>
-        <h4 className="mt-1 line-clamp-2 text-[16px] font-black leading-5 text-[#191C1D]">{swapName}</h4>
-        <p className="mt-1 text-xs font-black leading-4 text-[#566164]">{item.swap.scoreHint}</p>
-        <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-[#566164]">{item.swap.reason}</p>
-        <p className="mt-2 text-[11px] font-black uppercase tracking-[0.12em] text-[#00696B]">Saved {formatCompactHistoryDateTime(item.savedAt)}</p>
+        <h4 className="mt-1 line-clamp-2 text-[16px] font-semibold leading-5 text-ink">{swapName}</h4>
+        <p className="mt-1 text-xs font-medium leading-4 text-muted">{item.swap.scoreHint}</p>
+        <p className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-muted">{item.swap.reason}</p>
+        <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-leaf">Saved {formatCompactHistoryDateTime(item.savedAt)}</p>
       </div>
     </button>
   );
@@ -2048,16 +2272,17 @@ function ProfileScreen({
   history,
   onHistoryOpen,
   onProfileSave,
-  onLogOut,
+  onReviewSetup,
 }: {
   profile: OnboardingProfile;
   chart: ActivityChart;
   history: ScanHistoryItem[];
   onHistoryOpen: () => void;
   onProfileSave: (profile: OnboardingProfile) => void;
-  onLogOut: () => void;
+  onReviewSetup: () => void;
 }) {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [draftProfile, setDraftProfile] = useState<OnboardingProfile>(profile);
   const streakLabel = chart.currentStreak === 1 ? "1 Day" : `${chart.currentStreak} Days`;
   const profileDisplayName = profile.displayName || "Add your name";
@@ -2072,6 +2297,16 @@ function ProfileScreen({
   useEffect(() => {
     document.querySelector<HTMLElement>(".app-scroll-area")?.scrollTo({ top: 0 });
   }, [isEditingProfile]);
+
+  function deleteProfile() {
+    if (!window.confirm("Delete your profile, scan history, saved swaps, favorite places and settings from this device?")) return;
+    try {
+      deleteLocalProfileData();
+      window.location.reload();
+    } catch {
+      setDeleteError("Some profile data could not be removed. Allow access to device storage and try again.");
+    }
+  }
 
   function openEditProfile() {
     setDraftProfile(profile);
@@ -2095,7 +2330,7 @@ function ProfileScreen({
       ...draftProfile,
       displayName: draftProfile.displayName.trim(),
       email: draftProfile.email.trim().toLowerCase(),
-      completed: isOnboardingProfileReady(draftProfile),
+      completed: profile.completed,
     };
 
     onProfileSave(nextProfile);
@@ -2105,6 +2340,9 @@ function ProfileScreen({
   function updateDraftProfile(updater: (current: OnboardingProfile) => OnboardingProfile) {
     setDraftProfile((current) => updater(current));
   }
+
+  const sectionTitle = "mb-3 font-serif text-2xl font-normal leading-tight tracking-[-0.03em] text-ink";
+  const rowGroup = "overflow-hidden rounded-2xl border border-line bg-white";
 
   return (
     <AnimatePresence initial={false} mode="wait">
@@ -2119,88 +2357,88 @@ function ProfileScreen({
       ) : (
         <motion.div
           key="profile-overview"
-          className="-mx-5 min-h-full bg-[#F8FAFB] pb-8"
+          className="pb-8 pt-3 text-ink"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.16 }}
         >
-      <section className="flex flex-col items-center px-5 pt-5 text-center">
-        <div className="relative">
-          <div className="h-[120px] w-[120px] overflow-hidden rounded-full border-4 border-[#AEEED8] bg-white shadow-[0_16px_34px_rgba(0,105,107,0.10)]">
-            <img className="h-full w-full object-cover" src={profilePhoto} alt={profileDisplayName} />
+          <section className="flex flex-wrap items-center gap-x-5 gap-y-4 border-b border-line pb-6 sm:flex-nowrap md:gap-x-6 md:pb-8">
+            <div className="relative shrink-0">
+              <img
+                className="h-20 w-20 rounded-full border border-line bg-white object-cover md:h-24 md:w-24"
+                src={profilePhoto}
+                alt={profileDisplayName}
+              />
+              <button
+                className="absolute -bottom-1 -right-1 grid h-9 w-9 place-items-center rounded-full border-[3px] border-cream bg-leaf text-white transition hover:bg-[#103e34] focus-visible:outline focus-visible:outline-2 focus-visible:outline-leaf"
+                type="button"
+                aria-label="Edit profile"
+                onClick={openEditProfile}
+              >
+                <Pencil size={14} strokeWidth={2.3} />
+              </button>
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="break-words font-serif text-[clamp(1.9rem,4.5vw,3.3rem)] font-normal leading-[1.05] tracking-[-0.04em]">{profileDisplayName}</h2>
+              <p className="mt-2 break-words text-sm leading-5 text-muted">{profileEmail}</p>
+            </div>
+            <button
+              className="min-h-11 shrink-0 rounded-full border border-leaf bg-white px-5 text-sm font-semibold text-leaf transition hover:bg-oat focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf max-sm:basis-full"
+              type="button"
+              onClick={openEditProfile}
+            >
+              Edit Profile
+            </button>
+          </section>
+
+          <div className="grid gap-7 pt-6 md:grid-cols-2 md:gap-x-9 md:gap-y-8 md:pt-8">
+            <section className="min-w-0">
+              <h3 className={sectionTitle}>Activity</h3>
+              <ActivityCard chart={chart} />
+              <div className="grid grid-cols-2 gap-3">
+                <DashboardStatCard icon={<Clock size={21} />} label="Last Scan" value={formatLastScanSummary(history)} tone="green" />
+                <DashboardStatCard icon={<Leaf size={21} />} label="Health Streak" value={streakLabel} tone="green" />
+              </div>
+              <div className={`mt-3 ${rowGroup}`}>
+                <ProfileSettingsRow label="Food Scan History" icon={<History size={21} strokeWidth={1.9} />} onClick={onHistoryOpen} />
+              </div>
+            </section>
+
+            <section className="min-w-0">
+              <h3 className={sectionTitle}>Account Settings</h3>
+              <div className={rowGroup}>
+                {settingsItems.map((item) => (
+                  <ProfileSettingsRow key={item.label} label={item.label} icon={item.icon} />
+                ))}
+              </div>
+            </section>
+
+            <section className="min-w-0">
+              <h3 className={sectionTitle}>Support</h3>
+              <a
+                className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-left transition hover:bg-oat focus-visible:outline focus-visible:outline-2 focus-visible:outline-leaf"
+                href="mailto:support@betterbite.app?subject=BetterBite%20Support%20Request"
+                aria-label="Email tech support"
+              >
+                <Mail className="shrink-0 text-leaf" size={20} strokeWidth={1.9} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-medium leading-5">Email tech support</span>
+                  <span className="mt-0.5 block break-words text-xs leading-4 text-muted">support@betterbite.app</span>
+                </span>
+                <ChevronRight className="shrink-0 text-muted" size={17} />
+              </a>
+            </section>
+
+            <section className="min-w-0">
+              <h3 className={sectionTitle}>Other</h3>
+              <div className={rowGroup}>
+                <ProfileSettingsRow label="Review setup" icon={<RefreshCw size={21} strokeWidth={1.9} />} onClick={onReviewSetup} />
+                <ProfileSettingsRow label="Delete local profile" icon={<Trash2 size={21} strokeWidth={1.9} />} danger onClick={deleteProfile} />
+                {deleteError && <p role="alert" className="px-4 pb-3 text-sm text-[#a33c32]">{deleteError}</p>}
+              </div>
+            </section>
           </div>
-          <button
-            className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#00696B] text-white shadow-[0_10px_22px_rgba(0,105,107,0.24)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
-            type="button"
-            aria-label="Edit avatar"
-          >
-            <Pencil size={15} strokeWidth={3} />
-          </button>
-        </div>
-        <h2 className="mt-3 text-[24px] font-black leading-8 text-[#191C1D]">{profileDisplayName}</h2>
-        <p className="text-[16px] font-medium leading-6 text-[#3B4949]">{profileEmail}</p>
-        <button
-          className="mt-5 min-h-11 rounded-full border-2 border-[#00BFC3] px-8 text-[15px] font-semibold text-[#00696B] transition hover:bg-[#E8FDFD] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-          type="button"
-          onClick={openEditProfile}
-        >
-          Edit Profile
-        </button>
-      </section>
-
-      <section className="px-5 pt-8">
-        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Activity</h3>
-        <ActivityCard chart={chart} />
-      </section>
-
-      <section className="grid grid-cols-2 gap-3 px-5 pt-4">
-        <DashboardStatCard icon={<Clock size={25} />} label="Last Scan" value={formatLastScanSummary(history)} tone="green" />
-        <DashboardStatCard icon={<Leaf size={26} />} label="Health Streak" value={streakLabel} tone="green" />
-      </section>
-
-      <section className="px-5 pt-4">
-        <div className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
-          <ProfileSettingsRow label="Food Scan History" icon={<History size={21} strokeWidth={1.9} />} onClick={onHistoryOpen} />
-        </div>
-      </section>
-
-      <section className="px-5 pt-7">
-        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Account Settings</h3>
-        <div className="overflow-hidden rounded-xl border border-[#DDE8E9] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
-          {settingsItems.map((item) => (
-            <ProfileSettingsRow key={item.label} label={item.label} icon={item.icon} />
-          ))}
-        </div>
-      </section>
-
-      <section className="px-5 pt-7">
-        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Support</h3>
-        <a
-          className="flex min-h-[72px] w-full items-center justify-between rounded-xl border border-[#DDE8E9] bg-white/70 px-7 text-left text-[#191C1D] shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur transition hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-          href="mailto:support@betterbite.app?subject=BetterBite%20Support%20Request"
-          aria-label="Email tech support"
-        >
-          <span className="flex min-w-0 items-center gap-5">
-            <span className="text-[#3B4949]">
-              <Mail size={21} strokeWidth={1.9} />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[16px] font-medium leading-6">Email tech support</span>
-              <span className="block truncate text-[12px] font-bold leading-4 text-[#5F6F70]">support@betterbite.app</span>
-            </span>
-          </span>
-          <ChevronRight className="shrink-0 text-[#BAC9C9]" size={22} strokeWidth={2.2} />
-        </a>
-      </section>
-
-      <section className="px-5 pt-7">
-        <h3 className="mb-3 text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Other</h3>
-        <div className="overflow-hidden rounded-xl border border-[#FFDAD6] bg-white/70 shadow-[0_4px_20px_rgba(0,105,107,0.05)] backdrop-blur">
-          <ProfileSettingsRow label="Log Out" icon={<LogOut size={21} strokeWidth={1.9} />} danger onClick={onLogOut} />
-          <ProfileSettingsRow label="Delete Account" icon={<Trash2 size={21} strokeWidth={1.9} />} danger />
-        </div>
-      </section>
         </motion.div>
       )}
     </AnimatePresence>
@@ -2220,7 +2458,7 @@ function EditProfileSheet({
 }) {
   const nameError = getProfileNameError(draftProfile.displayName);
   const emailError = getProfileEmailError(draftProfile.email);
-  const canSave = !nameError && !emailError && isOnboardingProfileReady(draftProfile);
+  const canSave = !nameError && !emailError;
 
   function handleMainGoalToggle(goal: MainGoal) {
     onDraftChange((current) => ({
@@ -2243,9 +2481,14 @@ function EditProfileSheet({
     }));
   }
 
+  function submitProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (canSave) onSave();
+  }
+
   return (
     <motion.div
-      className="-mx-5 -mb-14 min-h-full bg-[#F8FAFB]"
+      className="mx-auto w-full max-w-5xl pb-8 pt-3 text-ink"
       role="region"
       aria-labelledby="edit-profile-title"
       initial={{ opacity: 0, y: 18 }}
@@ -2253,93 +2496,81 @@ function EditProfileSheet({
       exit={{ opacity: 0, y: 18 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
     >
-      <section className="min-h-full bg-[#F8FAFB]">
-        <header className="border-b border-[#DDE8E9] bg-white px-6 py-5">
-          <div className="flex min-h-[52px] items-center justify-between gap-4">
-            <div className="min-w-0 space-y-1">
-              <p className="text-[11px] font-black uppercase leading-4 tracking-[0.14em] text-[#00696B]">Profile</p>
-              <h2 id="edit-profile-title" className="text-[22px] font-black leading-7 text-[#191C1D]">
-                Edit Profile
-              </h2>
-            </div>
-            <button
-              type="button"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#EEF7F8] text-[#2C4B4B] transition hover:bg-[#DDF7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-              aria-label="Back to profile"
-              onClick={onClose}
-            >
-              <ChevronLeft size={21} strokeWidth={2.5} />
-            </button>
-          </div>
-        </header>
-
-        <div className="px-5 pb-3 pt-5">
-          <section>
-            <h3 className="text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">Account</h3>
-            <div className="mt-3 space-y-3">
-              <ProfileTextField
-                label="Name"
-                value={draftProfile.displayName}
-                autoComplete="name"
-                maxLength={80}
-                error={nameError}
-                onChange={(value) => onDraftChange((current) => ({ ...current, displayName: value }))}
-              />
-              <ProfileTextField
-                label="Email"
-                value={draftProfile.email}
-                type="email"
-                autoComplete="email"
-                maxLength={160}
-                error={emailError}
-                onChange={(value) => onDraftChange((current) => ({ ...current, email: value }))}
-              />
-            </div>
-          </section>
-
-          <EditProfileChoiceSection
-            className="mt-6"
-            title="Goals"
-            emptyMessage="Choose at least one goal."
-            options={MAIN_GOAL_OPTIONS}
-            values={draftProfile.mainGoals}
-            onToggle={handleMainGoalToggle}
-          />
-
-          <EditProfileChoiceSection
-            className="mt-6"
-            title="Diet"
-            emptyMessage="Choose at least one diet preference."
-            options={DIET_OPTIONS}
-            values={draftProfile.dietPreferences}
-            onToggle={handleDietPreferenceToggle}
-          />
-
-          <EditProfileChoiceSection
-            className="mt-6"
-            title="Avoid"
-            emptyMessage="Choose at least one ingredient preference."
-            options={FOOD_AVOIDANCE_OPTIONS}
-            values={draftProfile.foodsToAvoid}
-            onToggle={handleFoodAvoidanceToggle}
-          />
-
-          <section className="pt-8">
-            <button
-              type="button"
-              className={`flex h-12 w-full items-center justify-center rounded-[14px] text-[15px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
-                canSave
-                  ? "bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] active:translate-y-px"
-                  : "bg-[#D6E0E2] text-[#8B9A9C]"
-              }`}
-              disabled={!canSave}
-              onClick={onSave}
-            >
-              Save Changes
-            </button>
-          </section>
+      <header className="flex items-center gap-4 border-b border-line pb-5 md:pb-6">
+        <button
+          type="button"
+          className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-line bg-white text-leaf transition hover:border-leaf focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf"
+          aria-label="Back to profile"
+          onClick={onClose}
+        >
+          <ChevronLeft size={22} strokeWidth={2} />
+        </button>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-leaf">Profile</p>
+          <h2 id="edit-profile-title" className="mt-1 font-serif text-[clamp(2rem,4vw,3rem)] font-normal leading-[1.08] tracking-[-0.04em]">
+            Edit Profile
+          </h2>
         </div>
-      </section>
+      </header>
+
+      <form className="space-y-8 pt-6 md:space-y-9 md:pt-8" aria-labelledby="edit-profile-title" onSubmit={submitProfile} noValidate>
+        <fieldset className="min-w-0">
+          <legend className="font-serif text-2xl leading-tight tracking-[-0.03em]">Account</legend>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <ProfileTextField
+              label="Name (optional)"
+              value={draftProfile.displayName}
+              autoComplete="name"
+              maxLength={80}
+              error={nameError}
+              onChange={(value) => onDraftChange((current) => ({ ...current, displayName: value }))}
+            />
+            <ProfileTextField
+              label="Email (optional)"
+              value={draftProfile.email}
+              type="email"
+              autoComplete="email"
+              maxLength={160}
+              error={emailError}
+              onChange={(value) => onDraftChange((current) => ({ ...current, email: value }))}
+            />
+          </div>
+        </fieldset>
+
+        <EditProfileChoiceSection
+          title="Goals"
+          emptyMessage="No goals selected."
+          options={MAIN_GOAL_OPTIONS}
+          values={draftProfile.mainGoals}
+          onToggle={handleMainGoalToggle}
+        />
+
+        <EditProfileChoiceSection
+          title="Diet"
+          emptyMessage="No diet preferences selected."
+          options={DIET_OPTIONS}
+          values={draftProfile.dietPreferences}
+          onToggle={handleDietPreferenceToggle}
+        />
+
+        <EditProfileChoiceSection
+          title="Avoid"
+          emptyMessage="No ingredients selected."
+          options={FOOD_AVOIDANCE_OPTIONS}
+          values={draftProfile.foodsToAvoid}
+          onToggle={handleFoodAvoidanceToggle}
+        />
+
+        <div className="flex justify-end border-t border-line pt-5">
+          <button
+            type="submit"
+            className="min-h-12 w-full rounded-full bg-leaf px-8 text-base font-semibold text-white transition hover:bg-[#104c3e] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf disabled:cursor-not-allowed disabled:bg-[#dfe6de] disabled:text-[#53635a] sm:w-auto"
+            disabled={!canSave}
+          >
+            Save Changes
+          </button>
+        </div>
+      </form>
     </motion.div>
   );
 }
@@ -2361,23 +2592,30 @@ function ProfileTextField({
   maxLength: number;
   error: string;
 }) {
+  const fieldId = useId();
+  const errorId = `${fieldId}-error`;
+
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[13px] font-black leading-5 text-[#3B4949]">{label}</span>
+    <div className="min-w-0">
+      <label htmlFor={fieldId} className="mb-1.5 block text-sm font-semibold leading-5 text-ink">{label}</label>
       <input
-        className={`h-12 w-full rounded-[14px] border bg-white px-4 text-[15px] font-bold text-[#191C1D] outline-none transition placeholder:text-[#9BA5A7] focus:border-[#00AEB1] focus:ring-2 focus:ring-[#00C5C8]/20 ${
-          error ? "border-[#D8574E]" : "border-[#D9E4E5]"
-        }`}
+        id={fieldId}
+        name={autoComplete}
         type={type}
+        className={`min-h-12 w-full rounded-xl border bg-white px-3.5 text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${
+          error ? "border-[#a33c32]" : "border-[#728579]"
+        }`}
         value={value}
         autoComplete={autoComplete}
         maxLength={maxLength}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? errorId : undefined}
         onChange={(event) => onChange(event.target.value)}
       />
-      <span className={`mt-1 block min-h-4 text-[12px] font-bold leading-4 ${error ? "text-[#BA1A1A]" : "text-transparent"}`}>
+      <span id={errorId} className={`mt-1 block text-xs font-medium leading-4 ${error ? "text-[#a33c32]" : "sr-only"}`}>
         {error || "Valid"}
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -2387,22 +2625,18 @@ function EditProfileChoiceSection<T extends string>({
   options,
   values,
   onToggle,
-  className = "",
 }: {
   title: string;
   emptyMessage: string;
   options: Array<ChoiceOption<T>>;
   values: T[];
   onToggle: (value: T) => void;
-  className?: string;
 }) {
   return (
-    <section className={className}>
-      <div className="flex items-end justify-between gap-3">
-        <h3 className="text-[12px] font-black uppercase leading-4 tracking-[0.12em] text-[#2C6956]">{title}</h3>
-        {values.length === 0 && <p className="text-right text-[12px] font-bold leading-4 text-[#BA1A1A]">{emptyMessage}</p>}
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+    <fieldset className="min-w-0">
+      <legend className="font-serif text-2xl leading-tight tracking-[-0.03em] text-ink">{title}</legend>
+      {values.length === 0 && <p className="mt-1 text-sm font-medium text-muted">{emptyMessage}</p>}
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-2 sm:gap-3">
         {options.map((option) => {
           const isSelected = values.includes(option.value);
 
@@ -2411,21 +2645,21 @@ function EditProfileChoiceSection<T extends string>({
               key={option.value}
               type="button"
               aria-pressed={isSelected}
-              className={`flex min-h-[68px] min-w-0 items-center gap-2 rounded-[14px] border p-2.5 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 ${
+              className={`flex min-h-[54px] min-w-0 items-center gap-2.5 rounded-xl border p-2.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${
                 isSelected
-                  ? "border-[#009A9D] bg-[#E1FAF4] shadow-[0_8px_20px_rgba(0,105,107,0.10)]"
-                  : "border-[#D9E4E5] bg-white hover:border-[#00C5C8]"
+                  ? "border-leaf bg-oat"
+                  : "border-line bg-white hover:border-leaf"
               }`}
               onClick={() => onToggle(option.value)}
             >
               <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${option.tint}`}>{option.icon}</span>
-              <span className="min-w-0 flex-1 text-[13px] font-black leading-[1.18] text-[#191C1D]">{option.label}</span>
-              {isSelected && <CheckCircle2 className="shrink-0 text-[#00696B]" size={17} strokeWidth={2.6} aria-hidden="true" />}
+              <span className="min-w-0 flex-1 text-sm font-semibold leading-5 text-ink">{option.label}</span>
+              {isSelected && <CheckCircle2 className="shrink-0 text-leaf" size={17} strokeWidth={2.6} aria-hidden="true" />}
             </button>
           );
         })}
       </div>
-    </section>
+    </fieldset>
   );
 }
 
@@ -2433,7 +2667,7 @@ function getProfileNameError(value: string): string {
   const trimmedValue = value.trim();
 
   if (!trimmedValue) {
-    return "Name is required.";
+    return "";
   }
 
   if (trimmedValue.length > 80) {
@@ -2447,7 +2681,7 @@ function getProfileEmailError(value: string): string {
   const email = value.trim().toLowerCase();
 
   if (!email) {
-    return "Email is required.";
+    return "";
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -2471,16 +2705,15 @@ function ProfileSettingsRow({
   return (
     <button
       type="button"
-      className={`flex min-h-[72px] w-full items-center justify-between border-b border-[#DDE8E9]/70 px-7 text-left transition last:border-b-0 hover:bg-[#EEF7F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#00C5C8]/35 ${
-        danger ? "text-[#BA1A1A] hover:bg-[#FFDAD6]/35" : "text-[#191C1D]"
+      className={`flex min-h-[54px] w-full items-center gap-3 border-b border-line px-4 py-3 text-left transition last:border-b-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-leaf ${
+        danger ? "text-[#a43935] hover:bg-[#fcf2ef]" : "text-ink hover:bg-oat"
       }`}
+      disabled={!onClick}
       onClick={onClick}
     >
-      <span className="flex min-w-0 items-center gap-5">
-        <span className={danger ? "text-[#BA1A1A]" : "text-[#3B4949]"}>{icon}</span>
-        <span className="truncate text-[16px] font-medium leading-6">{label}</span>
-      </span>
-      <ChevronRight className={danger ? "text-[#F0B8B8]" : "text-[#BAC9C9]"} size={22} strokeWidth={2.2} />
+      <span className={danger ? "shrink-0" : "shrink-0 text-leaf"}>{icon}</span>
+      <span className="min-w-0 flex-1 text-[15px] font-medium leading-5">{label}</span>
+      <ChevronRight className="shrink-0 text-muted" size={17} />
     </button>
   );
 }
@@ -2489,13 +2722,12 @@ function HistoryFilterButton({ active, label, onClick }: { active: boolean; labe
   return (
     <button
       type="button"
-      className={`relative pb-4 text-[16px] font-bold outline-none transition focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#F8FAFB] ${
-        active ? "text-[#00696B]" : "text-[#273737] hover:text-[#00696B]"
-      }`}
+      className="history-filter"
+      aria-pressed={active}
       onClick={onClick}
     >
       {label}
-      {active && <span className="absolute bottom-[-2px] left-0 h-[3px] w-full rounded-full bg-[#00696B]" />}
+      {active && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-leaf" />}
     </button>
   );
 }
@@ -2506,13 +2738,13 @@ function HistoryScanCard({ item, onSelect }: { item: ScanHistoryItem; onSelect: 
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-4 rounded-xl border border-[#DDE8E9] bg-white/75 p-3 text-left shadow-[0_4px_20px_rgba(0,105,107,0.08)] backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
+      className="bento-card flex w-full items-center gap-3 p-3 text-left transition hover:border-leaf/50 sm:p-4"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onSelect}
     >
       <HistoryThumb imageUrl={item.imageUrl} name={item.productName} />
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-[17px] font-semibold leading-6 text-black">{item.productName}</h3>
+        <h3 className="break-words text-[17px] font-semibold leading-6 text-black">{item.productName}</h3>
         <p className="truncate text-[14px] font-semibold leading-5 text-[#3B4949]">{formatCompactHistoryDateTime(item.scannedAt)}</p>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {tags.map((tag) => (
@@ -2529,9 +2761,9 @@ function HistoryScanCard({ item, onSelect }: { item: ScanHistoryItem; onSelect: 
 
 function HistoryThumb({ imageUrl, name }: { imageUrl?: string; name: string }) {
   return (
-    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#B1EFD8] to-[#00696B]/25">
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-oat">
       {imageUrl ? (
-        <img className="h-full w-full object-cover" src={imageUrl} alt={name} />
+        <img className="h-full w-full object-contain" src={imageUrl} alt={name} />
       ) : (
         <Apple className="text-[#00696B]" size={34} strokeWidth={1.9} />
       )}
@@ -2550,7 +2782,7 @@ function HistoryScoreRing({ score }: { score: number }) {
       style={{ background: `conic-gradient(${accentColor} ${progressScore}%, #E1E3E4 ${progressScore}% 100%)` }}
       aria-label={`Score ${displayScore} out of 10`}
     >
-      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#F8FAFB] text-[16px] font-black" style={{ color: accentColor }}>
+      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-[16px] font-black" style={{ color: accentColor }}>
         {displayScore}
       </div>
     </div>
@@ -2632,14 +2864,15 @@ function historyItemTags(item: ScanHistoryItem): Array<{ label: string; classNam
 }
 
 function SavedSwapHistoryDetail({ item, onBack }: { item: SavedSwapHistoryItem; onBack: () => void }) {
+  const photo = alternativeImageFor(item.swap);
   const swapName = item.swap.brand ? `${item.swap.brand} ${item.swap.name}` : item.swap.name;
   const meta = item.swap.brand ? `${item.swap.brand} - ${item.swap.category}` : item.swap.category;
 
   return (
-    <div className="space-y-4">
+    <div className="record-detail space-y-4">
       <div className="flex items-center gap-3">
         <button
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-oat text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-leaf/35"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-oat text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-leaf/35"
           onClick={onBack}
           aria-label="Back to saved swaps"
         >
@@ -2647,21 +2880,21 @@ function SavedSwapHistoryDetail({ item, onBack }: { item: SavedSwapHistoryItem; 
         </button>
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-leaf">Saved swap</p>
-          <h2 className="mt-1 truncate text-xl font-black">{swapName}</h2>
+          <h2 className="record-subtitle mt-1 break-words">{swapName}</h2>
         </div>
       </div>
 
-      <div className="bento-card overflow-hidden">
+      <div className="bento-card record-feature overflow-hidden">
         <div className="bg-oat p-5">
           <div className="mx-auto flex aspect-square max-h-[190px] w-full max-w-[190px] items-center justify-center overflow-hidden rounded-[8px] bg-cream/80 text-leaf">
-            <Apple size={64} strokeWidth={1.9} />
+            {photo ? <img className="h-full w-full object-contain" src={photo} alt={swapName} /> : <Apple size={64} strokeWidth={1.9} />}
           </div>
         </div>
 
         <div className="space-y-4 p-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-muted">{meta}</p>
-            <h3 className="mt-1 text-xl font-black leading-tight">{swapName}</h3>
+            <h3 className="mt-1 record-subtitle">{swapName}</h3>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="rounded-full bg-[#DDF7EF] px-3 py-1 text-xs font-black text-[#00696B]">{item.swap.scoreHint}</span>
               <span className="inline-flex items-center gap-1 rounded-full border border-line bg-cream px-3 py-1 text-xs font-black text-ink">
@@ -2671,7 +2904,7 @@ function SavedSwapHistoryDetail({ item, onBack }: { item: SavedSwapHistoryItem; 
             </div>
           </div>
 
-          <p className="text-sm font-semibold leading-6 text-muted">{item.swap.reason}</p>
+          <p className="text-sm leading-6 text-muted">{item.swap.reason}</p>
           {item.swap.similarityReason && <p className="rounded-[8px] bg-oat px-3 py-2 text-sm font-semibold leading-5 text-ink">{item.swap.similarityReason}</p>}
         </div>
       </div>
@@ -2722,10 +2955,10 @@ function HistoryFoodDetail({
   }, [item.barcode]);
 
   return (
-    <div className="space-y-4">
+    <div className="record-detail space-y-4">
       <div className="flex items-center gap-3">
         <button
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-oat text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-leaf/35"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-oat text-ink outline-none transition hover:bg-line focus-visible:ring-2 focus-visible:ring-leaf/35"
           onClick={onBack}
           aria-label="Back to scan history"
         >
@@ -2733,7 +2966,7 @@ function HistoryFoodDetail({
         </button>
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-leaf">History detail</p>
-          <h2 className="mt-1 truncate text-xl font-black">{detailName}</h2>
+          <h2 className="record-subtitle mt-1 break-words">{detailName}</h2>
         </div>
       </div>
 
@@ -2903,9 +3136,9 @@ function HistoryFoodDetail({
 
 function HistoryDetailSection({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="bento-card space-y-3 p-4">
+    <div className="bento-card space-y-3 p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-black">{title}</h3>
+        <h3 className="record-subtitle">{title}</h3>
         {action}
       </div>
       {children}
@@ -2917,7 +3150,7 @@ function HistorySectionExpandButton({ expanded, onClick, label }: { expanded: bo
   return (
     <button
       type="button"
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf/35"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf/35"
       onClick={onClick}
       aria-label={label}
       aria-expanded={expanded}
@@ -2929,9 +3162,9 @@ function HistorySectionExpandButton({ expanded, onClick, label }: { expanded: bo
 
 function HistoryDataRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-1 rounded-[8px] border border-line bg-cream px-3 py-2">
-      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-muted">{label}</p>
-      <p className="break-words text-sm font-bold leading-5">{value}</p>
+    <div className="record-data-row">
+      <p className="text-xs font-semibold text-muted">{label}</p>
+      <p className="min-w-0 break-words text-sm font-medium leading-5">{value}</p>
     </div>
   );
 }
@@ -3069,7 +3302,7 @@ function SwapScreen({
           <SectionTitle eyebrow="Swap" title={currentProduct ? "Recommended swaps" : "Interchangeable picks"} />
 
           {currentProduct ? (
-            <div className="space-y-3">
+            <div className="swap-grid">
               {visibleAlternatives.map((alternative) => (
                 <SwapRecommendationCard
                   key={alternative.id}
@@ -3129,14 +3362,14 @@ function SwapRecommendationCard({
   const imageUrl = alternativeImageFor(alternative);
 
   return (
-    <article className={`bento-card overflow-hidden border ${isSaved ? "border-leaf/50" : "border-transparent"}`}>
+    <article className={`bento-card flex min-w-0 flex-col overflow-hidden border ${isSaved ? "border-leaf/50" : "border-line"}`}>
       <button
         type="button"
-        className="grid w-full grid-cols-[82px_minmax(0,1fr)] gap-3 p-4 text-left outline-none transition hover:bg-oat/45 focus-visible:ring-2 focus-visible:ring-leaf/35"
+        className="grid w-full flex-1 content-start grid-cols-[clamp(3rem,12vw,5rem)_minmax(0,1fr)] gap-3 p-4 text-left outline-none transition hover:bg-oat/45 focus-visible:ring-2 focus-visible:ring-leaf/35"
         onClick={onOpenDetail}
         aria-label={`View details for ${alternativeName}`}
       >
-        <div className="flex h-[82px] w-[82px] items-center justify-center overflow-hidden rounded-[8px] bg-oat text-leaf">
+        <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-[8px] bg-oat text-leaf">
           {imageUrl ? <img className="h-full w-full object-contain p-2" src={imageUrl} alt={alternativeName} /> : <Apple size={36} />}
         </div>
 
@@ -3150,7 +3383,7 @@ function SwapRecommendationCard({
               </span>
             )}
           </div>
-          <h3 className="mt-1 line-clamp-2 text-base font-black leading-5 text-ink">{alternativeName}</h3>
+          <h3 className="mt-1 break-words text-lg font-semibold leading-5 text-ink">{alternativeName}</h3>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <p className="text-xs font-black text-muted">{scoreHint}</p>
             <span className="inline-flex items-center gap-1 rounded-full border border-line bg-cream px-2.5 py-1 text-xs font-black text-ink">
@@ -3158,17 +3391,17 @@ function SwapRecommendationCard({
               Est. {estimatedPrice}
             </span>
           </div>
-          <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-muted">{alternative.reason}</p>
-          <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-ink">{similarity}</p>
+          <p className="mt-2 text-sm leading-5 text-muted">{alternative.reason}</p>
+          <p className="mt-2 text-sm font-medium leading-5 text-ink">{similarity}</p>
         </div>
       </button>
 
       <div className="border-t border-line bg-cream px-4 py-3">
         <button
           type="button"
-          className={`flex h-11 w-full items-center justify-center gap-2 rounded-[8px] text-sm font-black outline-none transition focus-visible:ring-2 focus-visible:ring-leaf/35 ${
+          className={`flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-leaf/35 ${
             isSaved
-              ? "bg-leaf text-white shadow-[0_10px_20px_rgba(13,83,14,0.16)]"
+              ? "bg-oat text-leaf"
               : "bg-ink text-white hover:-translate-y-0.5 hover:bg-leaf disabled:cursor-not-allowed disabled:translate-y-0 disabled:bg-muted"
           }`}
           onClick={onSave}
@@ -3234,10 +3467,10 @@ function SwapFoodDetailScreen({
       : "Why this is closer";
 
   return (
-    <div className="space-y-4">
+    <div className="record-detail space-y-4">
       <div className="flex items-center gap-3">
         <button
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-oat text-ink transition hover:bg-line"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-oat text-ink transition hover:bg-line"
           onClick={onBack}
           aria-label="Back to swap comparison"
         >
@@ -3247,11 +3480,11 @@ function SwapFoodDetailScreen({
           <p className={`text-xs font-black uppercase tracking-[0.2em] ${originalIsLowerQuality ? "text-ink" : "text-leaf"}`}>
             {detailLabel}
           </p>
-          <h2 className="mt-1 truncate text-xl font-black">{detailTitle}</h2>
+          <h2 className="record-subtitle mt-1 break-words">{detailTitle}</h2>
         </div>
       </div>
 
-      <div className="bento-card overflow-hidden">
+      <div className="bento-card record-feature overflow-hidden">
         <div className={`${originalIsLowerQuality ? "bg-sky" : "bg-oat"} p-5`}>
           <div className="mx-auto flex aspect-square max-h-[220px] w-full max-w-[220px] items-center justify-center overflow-hidden rounded-[8px] bg-cream/70">
             {imageUrl ? <img className="h-full w-full object-contain p-4" src={imageUrl} alt={name} /> : <Apple className="text-leaf" size={64} />}
@@ -3261,10 +3494,10 @@ function SwapFoodDetailScreen({
         <div className="space-y-4 p-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-muted">{meta}</p>
-            <h3 className="mt-1 text-xl font-black leading-tight">{name}</h3>
+            <h3 className="mt-1 record-subtitle">{name}</h3>
           </div>
 
-          <p className="text-sm font-semibold leading-6 text-muted">{reason}</p>
+          <p className="text-sm leading-6 text-muted">{reason}</p>
 
           <div className="grid gap-2">
             {supportingReasons.map((item) => (
@@ -3305,8 +3538,17 @@ function scannedProductDetail(product: Product, score: QualityScore | null): str
   return product.brand ? `${product.brand} - ${scoreText}` : scoreText;
 }
 
+const SWAP_PRODUCT_PHOTOS = new Map([
+  [FALLBACK_SWAP.id, boulderCanyonChips],
+  ["boulder-canyon-avocado-oil", boulderCanyonChips],
+  ["siete-chips", sieteChipsPhoto],
+  ["olipop", olipopColaPhoto],
+  ["hu-chocolate", huGemsPhoto],
+  ["lesser-evil-popcorn", lesserEvilPopcornPhoto],
+]);
+
 function alternativeImageFor(alternative: AlternativeProduct): string | undefined {
-  return alternative.id === FALLBACK_SWAP.id ? boulderCanyonChips : undefined;
+  return SWAP_PRODUCT_PHOTOS.get(alternative.id);
 }
 
 function estimatedSwapPrice(alternative: AlternativeProduct): string {
@@ -3419,11 +3661,11 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
       };
 
   return (
-    <div className="bento-card overflow-hidden p-4">
+    <div className="mb-3 overflow-hidden rounded-2xl border border-line bg-white p-3">
       <div className="flex items-center justify-between gap-4">
         {currentWeekRange && <p className="whitespace-nowrap text-[11px] font-black text-leaf">Current week: {currentWeekRange}</p>}
         <button
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-oat hover:text-ink"
           onClick={() => setIsExpanded((value) => !value)}
           aria-label={isExpanded ? "Hide full activity history" : "Show full activity history"}
           aria-expanded={isExpanded}
@@ -3433,7 +3675,7 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
       </div>
 
       <div className="mt-4">
-        <div className="grid grid-cols-7 gap-2 rounded-full bg-berry p-1">
+        <div className="grid grid-cols-7 gap-1 rounded-full bg-oat p-1">
           {chart.currentWeek.map((day) => {
             const hasActivity = day.count > 0;
             const isMissedLogin = !hasActivity && !day.isFuture;
@@ -3441,7 +3683,7 @@ function ActivityCard({ chart }: { chart: ActivityChart }) {
               <span
                 key={day.date}
                 aria-label={`${day.date}: ${day.count} activity point${day.count === 1 ? "" : "s"}`}
-                className={`flex h-9 w-9 justify-self-center items-center justify-center rounded-full ${hasActivity ? "bg-[#5E8E45]" : compactActivityColor(day.level, day.isFuture)}`}
+                className={`flex aspect-square w-full max-w-9 justify-self-center items-center justify-center rounded-full ${hasActivity ? "bg-[#5E8E45]" : compactActivityColor(day.level, day.isFuture)}`}
                 title={`${day.date}: ${day.count} activity point${day.count === 1 ? "" : "s"}`}
               >
                 {hasActivity && (
@@ -3503,7 +3745,7 @@ function FullActivityChart({ chart }: { chart: ActivityChart }) {
 
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <div ref={scrollerRef} className="overflow-x-auto pb-2" aria-label="Daily activity over the last 53 weeks">
+      <div ref={scrollerRef} role="region" tabIndex={0} data-swipe-ignore="true" className="overflow-x-auto pb-2" aria-label="Daily activity over the last 53 weeks">
         <div className="grid w-max grid-cols-[32px_repeat(53,12px)] gap-x-[3px] gap-y-[3px]">
           <span />
           {chart.weeks.map((week) => (
@@ -3534,6 +3776,24 @@ function FullActivityChart({ chart }: { chart: ActivityChart }) {
   );
 }
 
+function activityCellColor(level: number, isFuture: boolean): string {
+  if (isFuture) return "bg-[#F7FAFB]";
+  if (level <= 0) return "bg-[#EAF4EE]";
+  if (level === 1) return "bg-[#0D8F4F]";
+  if (level === 2) return "bg-[#31A863]";
+  if (level === 3) return "bg-[#5DBB73]";
+  return "bg-[#86D695]";
+}
+
+function compactActivityColor(level: number, isFuture: boolean): string {
+  if (isFuture) return "bg-white";
+  if (level <= 0) return "bg-[#EAF4EE]";
+  if (level === 1) return "bg-[#0D8F4F]";
+  if (level === 2) return "bg-[#31A863]";
+  if (level === 3) return "bg-[#5DBB73]";
+  return "bg-[#86D695]";
+}
+
 function ScannerCard({
   barcode,
   error,
@@ -3552,9 +3812,9 @@ function ScannerCard({
   return (
     <div className="bento-card overflow-hidden">
       <div className="grid min-h-[190px] grid-cols-[1.05fr_0.95fr]">
-        <div className="bg-gradient-to-br from-[#12C8CA] to-[#007A79] p-5 text-white">
+        <div className="bg-leaf p-5 text-white">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-white/85">Barcode</p>
-          <h2 className="mt-3 text-2xl font-black leading-tight">Scan an ingredient label fast</h2>
+          <h2 className="mt-3 font-serif text-2xl leading-tight">Scan an ingredient label fast</h2>
           <button
             className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-black text-[#00696B] shadow-[0_12px_24px_rgba(0,105,107,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-white/70"
             onMouseDown={(event) => event.preventDefault()}
@@ -3564,7 +3824,7 @@ function ScannerCard({
             Camera
           </button>
         </div>
-        <div className="flex items-center justify-center bg-[#DDF7EF] p-4">
+        <div className="flex items-center justify-center bg-oat p-4">
           <div className="rounded-[26px] bg-white p-5 text-[#12C8CA] shadow-[0_14px_32px_rgba(0,180,184,0.12)]">
             <Barcode size={76} strokeWidth={1.8} />
           </div>
@@ -3586,7 +3846,7 @@ function ScannerCard({
           />
           <button
             type="submit"
-            className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[14px] bg-gradient-to-r from-[#12C8CA] to-[#007A79] text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 disabled:opacity-60"
+            className="inline-flex h-[50px] w-[54px] items-center justify-center rounded-[14px] bg-leaf text-white shadow-[0_12px_24px_rgba(0,128,128,0.18)] outline-none transition active:translate-y-px focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35 disabled:opacity-60"
             onMouseDown={(event) => event.preventDefault()}
             disabled={isLoading}
             aria-label="Search barcode"
@@ -3595,7 +3855,7 @@ function ScannerCard({
           </button>
         </div>
         {error && (
-          <div className="flex items-start gap-2 rounded-[8px] bg-[#DDF7EF] px-3 py-2 text-sm font-semibold text-[#00696B]">
+          <div className="flex items-start gap-2 rounded-[8px] bg-oat px-3 py-2 text-sm font-semibold text-[#00696B]">
             <AlertTriangle className="mt-0.5 shrink-0" size={16} />
             <span>{error}</span>
           </div>
@@ -3607,15 +3867,15 @@ function ScannerCard({
 
 function EmptyState() {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid gap-3 sm:grid-cols-2">
       <div className="bento-card bg-white p-4">
         <Apple className="mb-5 text-leaf" size={30} />
-        <h2 className="text-lg font-black">Ingredient-first</h2>
+        <h2 className="record-subtitle">Ingredient-first</h2>
         <p className="mt-2 text-sm leading-6 text-muted">Scores focus on processing and ingredient quality.</p>
       </div>
       <div className="bento-card bg-white p-4">
         <CheckCircle2 className="mb-5 text-coral" size={30} />
-        <h2 className="text-lg font-black">Clear swaps</h2>
+        <h2 className="record-subtitle">Clear swaps</h2>
         <p className="mt-2 text-sm leading-6 text-muted">Alternatives are curated by product category.</p>
       </div>
     </div>
@@ -3634,14 +3894,14 @@ function ProductResult({
   showAlternatives?: boolean;
 }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }} className="space-y-4">
-      <div className="bento-card p-4">
+    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }} className="scan-report">
+      <div className="scan-report-heading bento-card p-4 sm:p-6">
         <div className="flex gap-4">
           <ProductThumb imageUrl={product.imageUrl} name={product.name} large />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-leaf">{product.brand ?? "Open Food Facts"}</p>
-            <h2 className="mt-2 line-clamp-2 text-xl font-black leading-tight">{product.name}</h2>
-            <p className="mt-2 line-clamp-1 text-xs font-bold text-muted">{product.categoriesText ?? product.barcode}</p>
+            <h2 className="record-subtitle mt-2 break-words">{product.name}</h2>
+            <p className="mt-2 break-words text-xs font-medium text-muted">{product.categoriesText ?? product.barcode}</p>
           </div>
           <ScoreBadge value={score.value} />
         </div>
@@ -3703,8 +3963,8 @@ function FlagSection({ title, flags, emptyText }: { title: string; flags: Ingred
 function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return (
     <div>
-      <p className="text-xs font-black uppercase tracking-[0.22em] text-leaf">{eyebrow}</p>
-      <h2 className="mt-1 text-xl font-black">{title}</h2>
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-leaf">{eyebrow}</p>
+      <h2 className="record-subtitle mt-1">{title}</h2>
     </div>
   );
 }
@@ -3748,18 +4008,13 @@ function NavButton({
   return (
     <button
       data-testid={testId}
-      className="group flex h-14 w-[72px] flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[11px] font-black leading-4 text-[#3B4949] outline-none transition focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-      onMouseDown={(event) => event.preventDefault()}
+      type="button"
+      aria-current={active ? "page" : undefined}
+      className="app-nav-item"
       onClick={onClick}
     >
-      <span
-        className={`flex h-[21px] w-[72px] items-center justify-center transition-colors ${
-          active ? "text-[#0D8F68] [&>svg]:fill-none [&>svg]:stroke-current" : "text-current group-hover:text-[#00696B] [&>svg]:fill-none"
-        }`}
-      >
-        {icon}
-      </span>
-      <span className="text-[#3B4949]">{label}</span>
+      {icon}
+      <span>{label}</span>
     </button>
   );
 }
@@ -3795,24 +4050,6 @@ function flagColor(severity: IngredientFlag["severity"]): string {
   return "bg-muted";
 }
 
-function activityCellColor(level: number, isFuture: boolean): string {
-  if (isFuture) return "bg-[#F7FAFB]";
-  if (level <= 0) return "bg-[#EAF4EE]";
-  if (level === 1) return "bg-[#0D8F4F]";
-  if (level === 2) return "bg-[#31A863]";
-  if (level === 3) return "bg-[#5DBB73]";
-  return "bg-[#86D695]";
-}
-
-function compactActivityColor(level: number, isFuture: boolean): string {
-  if (isFuture) return "bg-cream/20";
-  if (level <= 0) return "bg-[#EAF4EE]";
-  if (level === 1) return "bg-[#0D8F4F]";
-  if (level === 2) return "bg-[#31A863]";
-  if (level === 3) return "bg-[#5DBB73]";
-  return "bg-[#86D695]";
-}
-
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
 }
@@ -3825,8 +4062,21 @@ function isLikelyMobileRuntime(): boolean {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+
+function getFoodRecognitionErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  return error instanceof Error && error.message ? error.message : "Food recognition is unavailable.";
+}
+
+
 function stopMediaStream(stream: MediaStream | null): void {
   stream?.getTracks().forEach((track) => track.stop());
+}
+
+function isScannerDismissalError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+
+  return /\b(cancelled|canceled|cancel|closed|dismissed|aborted)\b/i.test(message);
 }
 
 function getBrowserCameraErrorMessage(error: unknown): string {
@@ -3836,7 +4086,7 @@ function getBrowserCameraErrorMessage(error: unknown): string {
     }
 
     if (error.name === "NotFoundError") {
-      return "No camera was found on this device.";
+      return "No camera was found on this laptop.";
     }
 
     if (error.name === "NotReadableError") {
@@ -3869,11 +4119,6 @@ function getBrowserCameraBlockedMessage(): string {
   const hostCopy = host ? ` for ${host}` : "";
 
   return `Camera permission is blocked for this site. Allow camera access${hostCopy} in your browser settings, then tap Try camera again.`;
-}
-
-function getFoodRecognitionErrorMessage(error: unknown): string {
-  if (typeof error === "string") return error;
-  return error instanceof Error && error.message ? error.message : "Food recognition is unavailable.";
 }
 
 function captureVideoFrameAsDataUrl(video: HTMLVideoElement): string {

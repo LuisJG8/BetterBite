@@ -6,7 +6,8 @@
   "packageManager": "pnpm@11.0.6",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit --pretty false && tsc -p tsconfig.node.json --noEmit --pretty false",
+    "build": "pnpm typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri",
     "test": "vitest run",
@@ -14,6 +15,7 @@
     "typesense:reset": "node --env-file-if-exists=.env scripts/seed-typesense.mjs --reset"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-barcode-scanner": "^2.0.0",
     "@zxing/browser": "^0.2.0",
@@ -34,7 +36,7 @@
     "esbuild": "^0.28.1",
     "postcss": "^8.4.49",
     "tailwindcss": "3.4.17",
-    "typescript": "^5.7.2",
+    "typescript": "^7.0.2",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   }

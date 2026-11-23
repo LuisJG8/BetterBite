@@ -131,6 +131,11 @@ describe("typesense food search helpers", () => {
     const error = reduceFoodSearchState(loading, { type: "searchFailed", query: "chips", error: "offline" });
     expect(error).toMatchObject({ status: "error", error: "offline", selectedResult: null });
 
+    expect(reduceFoodSearchState(error, { type: "queryChanged", query: "chips " })).toMatchObject({
+      status: "error",
+      error: "offline",
+    });
+
     const reset = reduceFoodSearchState(error, { type: "queryChanged", query: " " });
     expect(reset).toMatchObject({ query: " ", status: "idle", results: [], selectedResult: null });
   });
@@ -165,6 +170,7 @@ describe("typesense food search helpers", () => {
 
   it("turns common Typesense failures into actionable messages", () => {
     expect(friendlyTypesenseError(new Error("Failed to fetch"))).toContain("docker compose up");
+    expect(friendlyTypesenseError(new Error("internal provider details"))).toBe("Could not search foods. Please try again.");
     expect(friendlyTypesenseError(new Error("401 Unauthorized"))).toContain("pnpm typesense:seed");
   });
 });

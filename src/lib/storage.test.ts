@@ -8,6 +8,13 @@ import {
   loadScanHistory,
   loadSettings,
   ONBOARDING_KEY,
+  MAP_LOCATION_KEY,
+  clearMapLocation,
+  deleteLocalProfileData,
+  loadFavoriteRestaurantIds,
+  saveFavoriteRestaurantIds,
+  loadMapLocation,
+  saveMapLocation,
   recordActivity,
   saveActivityDays,
   saveSavedSwapHistory,
@@ -31,6 +38,10 @@ class MemoryStorage {
     this.values.set(key, value);
   }
 
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
   clear(): void {
     this.values.clear();
   }
@@ -44,10 +55,61 @@ class ThrowingStorage extends MemoryStorage {
 
 describe("storage helpers", () => {
   beforeEach(() => {
+    Object.defineProperty(globalThis, "sessionStorage", { value: new MemoryStorage(), configurable: true });
     Object.defineProperty(globalThis, "localStorage", {
       value: new MemoryStorage(),
       configurable: true,
     });
+  });
+
+  it("caches recent map locations only for this session and removes old persistent coordinates", () => {
+    const location = { latitude: 25.76, longitude: -80.19, accuracyMeters: 15, capturedAt: Date.now() };
+    localStorage.setItem(MAP_LOCATION_KEY, JSON.stringify(location));
+    expect(loadMapLocation()).toBeNull();
+    expect(localStorage.getItem(MAP_LOCATION_KEY)).toBeNull();
+    expect(saveMapLocation(location)).toEqual(location);
+    expect(loadMapLocation()).toEqual(location);
+    clearMapLocation();
+    expect(loadMapLocation()).toBeNull();
+  });
+
+  it("bounds favorite restaurant IDs and clears only BetterBite data on profile deletion", () => {
+    localStorage.setItem("unrelated", "keep");
+    saveFavoriteRestaurantIds(["burger-shop", "burger-shop", "", "x".repeat(150)]);
+    expect(loadFavoriteRestaurantIds()).toEqual(["burger-shop"]);
+    localStorage.setItem(ONBOARDING_KEY, JSON.stringify({ completed: true }));
+    const location = { latitude: 25.76, longitude: -80.19, accuracyMeters: 15, capturedAt: Date.now() };
+    saveMapLocation(location);
+    deleteLocalProfileData();
+    expect(loadMapLocation()).toBeNull();
+    expect(loadFavoriteRestaurantIds()).toEqual([]);
+    expect(localStorage.getItem(ONBOARDING_KEY)).toBeNull();
+    expect(localStorage.getItem("unrelated")).toBe("keep");
+  });
+
+  it("keeps the profile for a retry if device storage prevents complete deletion", () => {
+    localStorage.setItem(ONBOARDING_KEY, JSON.stringify({ completed: true }));
+    Object.defineProperty(globalThis, "sessionStorage", {
+      value: { removeItem() { throw new Error("storage unavailable"); } }, configurable: true,
+    });
+    expect(() => deleteLocalProfileData()).toThrow("storage unavailable");
+    expect(loadOnboardingProfile().completed).toBe(true);
+  });
+
+  it("preserves spaces while a name is being typed and trims the submitted name", () => {
+    const draft = saveOnboardingProfile({ ...loadOnboardingProfile(), displayName: "Ana " });
+    expect(draft.displayName).toBe("Ana ");
+    expect(loadOnboardingProfile().displayName).toBe("Ana ");
+    const completed = saveOnboardingProfile({ ...draft, completed: true, displayName: draft.displayName + "Maria " });
+    expect(completed.displayName).toBe("Ana Maria");
+  });
+
+  it("discards stale, malformed or future coordinates from the session cache", () => {
+    for (const [latitude, capturedAt] of [[25, Date.now() - 3_600_000], [95, Date.now()], [25, Date.now() + 3_600_000]]) {
+      sessionStorage.setItem(MAP_LOCATION_KEY, JSON.stringify({ latitude, longitude: -80, accuracyMeters: 5, capturedAt }));
+      expect(loadMapLocation()).toBeNull();
+      expect(sessionStorage.getItem(MAP_LOCATION_KEY)).toBeNull();
+    }
   });
 
   it("filters corrupted scan history instead of returning unsafe shapes", () => {
