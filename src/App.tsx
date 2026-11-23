@@ -19,6 +19,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPin,
   Pencil,
   RefreshCw,
   Search,
@@ -33,6 +34,7 @@ import burgerKingFries from "./assets/burger-king-fries.jpg";
 import menuPhoto from "./assets/menu-photo.jpg";
 import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
 import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
+import { MapScreen } from "./components/MapScreen";
 import { OnboardingFlow, type OnboardingStep } from "./components/OnboardingFlow";
 import { DIET_OPTIONS, FOOD_AVOIDANCE_OPTIONS, MAIN_GOAL_OPTIONS, type ChoiceOption } from "./components/onboardingOptions";
 import { SearchScreen } from "./components/SearchScreen";
@@ -165,7 +167,7 @@ const ESTIMATED_SWAP_PRICES: Record<string, string> = {
 };
 
 const TEST_BARCODE = "5449000000996";
-const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "scan-swap", "main-goal", "diet", "avoid", "account"];
+const ONBOARDING_SEQUENCE: VisibleOnboardingStep[] = ["welcome", "benefits", "main-goal", "diet", "avoid", "account"];
 const RECOMMENDED_FOODS = [
   {
     name: "Siete Sea Salt Chips",
@@ -205,7 +207,7 @@ const RECOMMENDED_FOODS = [
 
 function createEmptyOnboardingProfile(): OnboardingProfile {
   return {
-    displayName: "BetterBite User",
+    displayName: "",
     email: "",
     mainGoals: [],
     dietPreferences: [],
@@ -219,7 +221,6 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
   switch (step) {
     case "welcome":
     case "benefits":
-    case "scan-swap":
       return true;
     case "main-goal":
       return profile.mainGoals.length > 0;
@@ -228,7 +229,7 @@ function canContinueOnboardingStep(step: OnboardingStep, profile: OnboardingProf
     case "avoid":
       return profile.foodsToAvoid.length > 0;
     case "account":
-      return isOnboardingProfileReady(profile);
+      return true;
     case "app":
       return false;
   }
@@ -568,13 +569,13 @@ export default function App() {
     setOnboardingStep(ONBOARDING_SEQUENCE[currentIndex - 1]);
   }
 
-  function handleOnboardingContinue(accountEmail?: string) {
+  function handleOnboardingContinue() {
     if (onboardingStep === "app" || !canContinueOnboardingStep(onboardingStep, onboardingProfile)) {
       return;
     }
 
     if (onboardingStep === "account") {
-      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, email: accountEmail ?? onboardingProfile.email, completed: true });
+      const completedProfile = saveOnboardingProfile({ ...onboardingProfile, completed: true });
       const loginActivity = recordLoginActivityOnce();
       setOnboardingProfile(completedProfile);
       if (loginActivity) {
@@ -583,6 +584,19 @@ export default function App() {
       setOnboardingStep("app");
       setActiveTab("home");
       window.scrollTo({ top: 0, left: 0 });
+      return;
+    }
+
+    const currentIndex = ONBOARDING_SEQUENCE.indexOf(onboardingStep);
+    const nextStep = ONBOARDING_SEQUENCE[currentIndex + 1];
+    setOnboardingProfile(saveOnboardingProfile({ ...onboardingProfile, completed: false }));
+    if (nextStep) {
+      setOnboardingStep(nextStep);
+    }
+  }
+
+  function handleOnboardingSkip() {
+    if (onboardingStep !== "main-goal" && onboardingStep !== "diet" && onboardingStep !== "avoid") {
       return;
     }
 
@@ -612,6 +626,20 @@ export default function App() {
     updateOnboardingProfile((current) => ({
       ...current,
       foodsToAvoid: toggleMultiSelect(current.foodsToAvoid, avoidance, "none"),
+    }));
+  }
+
+  function handleAccountNameChange(displayName: string) {
+    updateOnboardingProfile((current) => ({
+      ...current,
+      displayName,
+    }));
+  }
+
+  function handleAccountEmailChange(email: string) {
+    updateOnboardingProfile((current) => ({
+      ...current,
+      email,
     }));
   }
 
@@ -751,6 +779,10 @@ export default function App() {
       return <SearchScreen />;
     }
 
+    if (tab === "map") {
+      return <MapScreen />;
+    }
+
     if (profileView === "history") {
       return renderHistoryContent(handleProfileHistoryBack);
     }
@@ -783,6 +815,9 @@ export default function App() {
         profile={onboardingProfile}
         onBack={handleOnboardingBack}
         onContinue={handleOnboardingContinue}
+        onSkipOptionalQuestion={handleOnboardingSkip}
+        onAccountNameChange={handleAccountNameChange}
+        onAccountEmailChange={handleAccountEmailChange}
         onMainGoalToggle={handleMainGoalToggle}
         onDietPreferenceToggle={handleDietPreferenceToggle}
         onFoodAvoidanceToggle={handleFoodAvoidanceToggle}
@@ -790,15 +825,25 @@ export default function App() {
     );
   }
 
+  const isMapTab = activeTab === "map";
+  const contentClassName = isMapTab
+    ? "min-h-0 flex-1 overflow-hidden bg-[#DDE8E9]"
+    : "app-scroll-area min-h-0 flex-1 px-5 pb-14 pt-safe-offset";
+
   return (
     <main className="min-h-[100dvh] bg-cream text-ink">
       <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-cream shadow-soft md:my-6 md:h-[900px] md:max-h-[calc(100vh-3rem)] md:rounded-[34px]">
-        <section ref={contentScrollRef} className="app-scroll-area min-h-0 flex-1 px-5 pb-14 pt-safe-offset">
-          <SwipeableTabViewport activeTab={activeTab} disabled={showBrowserScanner} onTabChange={handleTabChange} renderTab={renderTabContent} />
+        <section ref={contentScrollRef} className={contentClassName}>
+          <SwipeableTabViewport
+            activeTab={activeTab}
+            disabled={showBrowserScanner || isMapTab}
+            onTabChange={handleTabChange}
+            renderTab={renderTabContent}
+          />
         </section>
 
         <nav className="h-[calc(3.5rem+env(safe-area-inset-bottom))] shrink-0 border-t border-line bg-white/92 px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_rgba(0,105,107,0.08)] backdrop-blur">
-          <div className="grid h-14 grid-cols-4 place-items-center">
+          <div className="grid h-14 grid-cols-5 place-items-center">
             <NavButton
               testId="nav-home"
               active={activeTab === "home"}
@@ -819,6 +864,13 @@ export default function App() {
               icon={<Camera size={21} />}
               label="Scan"
               onClick={handleScanTabPress}
+            />
+            <NavButton
+              testId="nav-map"
+              active={activeTab === "map"}
+              icon={<MapPin size={21} />}
+              label="Map"
+              onClick={() => handleTabChange("map")}
             />
             <NavButton
               testId="nav-profile"
