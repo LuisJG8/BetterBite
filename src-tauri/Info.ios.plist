@@ -4,5 +4,7 @@
 <dict>
   <key>NSCameraUsageDescription</key>
   <string>BetterBite uses the camera to scan product barcodes.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>BetterBite uses your location to show nearby restaurants that match its cleaner-food criteria.</string>
 </dict>
 </plist>
