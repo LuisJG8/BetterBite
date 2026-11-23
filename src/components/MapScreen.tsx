@@ -1,7 +1,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
-import { AlertTriangle, CheckCircle2, Heart, Leaf, Loader2, LocateFixed, Search, SlidersHorizontal, Star } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Heart, Leaf, Loader2, LocateFixed, Search, SlidersHorizontal, Star } from "lucide-react";
 import { AttributionControl, Marker, Map as MapLibreMap, setWorkerUrl, type StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,7 +43,7 @@ const OSM_RASTER_STYLE: StyleSpecification = {
   ],
 };
 
-export function MapScreen() {
+export function MapScreen({ onScanMenu }: { onScanMenu?: (restaurantName: string) => void }) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const restaurantMarkersRef = useRef<Marker[]>([]);
@@ -309,14 +309,28 @@ export function MapScreen() {
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-3 z-10" data-swipe-ignore="true">
+      <div className="absolute inset-x-0 bottom-3 z-10 [@media(max-height:500px)]:max-h-[48%] [@media(max-height:500px)]:overflow-y-auto" data-swipe-ignore="true">
         {restaurants.length > 0 ? (
-          <RestaurantMapCarousel
-            restaurants={restaurants}
-            selectedRestaurantId={selectedRestaurantId}
-            onSelect={setSelectedRestaurantId}
-            setCardRef={setRestaurantCardRef}
-          />
+          <>
+            {selectedRestaurant && onScanMenu && (
+              <div className="mb-2 flex justify-center px-4">
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full bg-[#00696B] px-5 text-sm font-black text-white shadow-[0_12px_26px_rgba(0,64,66,0.28)] transition hover:bg-[#005B5D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
+                  onClick={() => onScanMenu(selectedRestaurant.name)}
+                >
+                  <Camera className="shrink-0" size={17} strokeWidth={2.5} />
+                  <span className="truncate">Scan {selectedRestaurant.name} menu</span>
+                </button>
+              </div>
+            )}
+            <RestaurantMapCarousel
+              restaurants={restaurants}
+              selectedRestaurantId={selectedRestaurantId}
+              onSelect={setSelectedRestaurantId}
+              setCardRef={setRestaurantCardRef}
+            />
+          </>
         ) : (
           <div className="px-4">
             <MapEmptyState hasActiveFilters={hasActiveFilters} locationStatus={locationStatus} onClearFilters={clearFilters} onUseLocation={requestUserLocation} />

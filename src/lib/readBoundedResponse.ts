@@ -1,6 +1,6 @@
 export async function readBoundedResponseText(response: Response, maxBytes: number, service: string): Promise<string> {
   if (Number(response.headers.get("content-length")) > maxBytes) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => {});
     throw new Error(`${service} response was too large.`);
   }
 
@@ -10,39 +10,26 @@ export async function readBoundedResponseText(response: Response, maxBytes: numb
     throw new Error(`Could not read ${service} response.`);
   }
 
-  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let text = "";
   let totalBytes = 0;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
-        break;
+        return text + decoder.decode();
       }
 
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes) {
-        await reader.cancel();
+        void reader.cancel().catch(() => {});
         throw new Error(`${service} response was too large.`);
       }
 
-      chunks.push(value);
+      text += decoder.decode(value, { stream: true });
     }
   } finally {
     reader.releaseLock();
   }
-
-  return new TextDecoder().decode(joinChunks(chunks, totalBytes));
-}
-
-function joinChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return body;
 }
