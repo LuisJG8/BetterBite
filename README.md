@@ -68,10 +68,12 @@ Start an emulator or connect a device, then run:
 pnpm tauri android dev
 ```
 
-Build an APK for direct device testing or an AAB for Google Play:
+To run from Android Studio, use `pnpm tauri android dev --open` and keep the command running while working in the IDE.
+
+Build a debug APK for direct device testing or a release AAB for Google Play:
 
 ```sh
-pnpm tauri android build --apk
+pnpm tauri android build --debug --apk
 pnpm tauri android build --aab
 ```
 

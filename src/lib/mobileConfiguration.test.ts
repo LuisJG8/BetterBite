@@ -11,8 +11,18 @@ describe("mobile configuration", () => {
     expect(manifest).toContain("android.permission.INTERNET");
     expect(manifest).toContain("android.permission.ACCESS_COARSE_LOCATION");
     expect(manifest).toContain("android.permission.ACCESS_FINE_LOCATION");
-    expect(manifest).toContain('android.hardware.location.gps" android:required="false"');
+    for (const feature of ["camera", "camera.any", "camera.autofocus", "location", "location.gps", "location.network"]) {
+      expect(manifest).toContain(`android.hardware.${feature}" android:required="false"`);
+    }
     expect(manifest).not.toContain("LEANBACK_LAUNCHER");
+  });
+
+  it("packages the BetterBite adaptive launcher artwork", () => {
+    const foreground = "mipmap-xxxhdpi/ic_launcher_foreground.png";
+    const resources = "src-tauri/gen/android/app/src/main/res";
+
+    expect(projectFile(`${resources}/mipmap-anydpi-v26/ic_launcher.xml`)).toContain("@mipmap/ic_launcher_foreground");
+    expect(readFileSync(resolve(resources, foreground))).toEqual(readFileSync(resolve("src-tauri/icons/android", foreground)));
   });
 
   it("allows the map resources required by the native webview", () => {
