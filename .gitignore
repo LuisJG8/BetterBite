@@ -4,6 +4,8 @@
 /typesense-data
 /src-tauri/target
 .env
+.env.*
+!.env.example
 .DS_Store
 /.idea
 /.vscode

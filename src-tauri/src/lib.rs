@@ -154,27 +154,26 @@ async fn classify_image_with_hugging_face_model(
     content_type: &'static str,
     image_bytes: Vec<u8>,
 ) -> Result<Vec<FoodRecognitionDto>, String> {
-    let mut request = hugging_face_client()?
+    let token = hugging_face_token().ok_or_else(|| {
+        "Food recognition is unavailable until the service is configured.".to_string()
+    })?;
+    let request = hugging_face_client()?
         .post(format!("{HUGGING_FACE_MODEL_URL}{model}"))
         .header(reqwest::header::ACCEPT, "application/json")
         .header(reqwest::header::CONTENT_TYPE, content_type)
+        .bearer_auth(token)
         .body(image_bytes);
-
-    if let Some(token) = hugging_face_token() {
-        request = request.bearer_auth(token);
-    }
 
     let response = request
         .send()
         .await
         .map_err(|error| format!("Could not reach Hugging Face food recognition: {error}"))?;
     let status = response.status();
-    let body = read_bounded_hugging_face_body(response).await?;
-
     if !status.is_success() {
-        return Err(hugging_face_error_message(&body, status));
+        return Err(format!("Food recognition service returned {status}."));
     }
 
+    let body = read_bounded_hugging_face_body(response).await?;
     parse_hugging_face_food_response(&body, model)
 }
 
@@ -239,11 +238,14 @@ fn hugging_face_client() -> Result<&'static reqwest::Client, String> {
 }
 
 fn hugging_face_token() -> Option<String> {
-    env::var("HUGGING_FACE_API_TOKEN")
-        .or_else(|_| env::var("HF_TOKEN"))
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    ["HUGGING_FACE_API_TOKEN", "HF_TOKEN"]
+        .iter()
+        .find_map(|key| {
+            env::var(key)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
 }
 
 fn parse_open_food_facts_response(body: &[u8]) -> Result<OpenFoodFactsResponse, String> {
@@ -383,6 +385,9 @@ fn parse_image_data_url(image_data_url: &str) -> Result<(&'static str, Vec<u8>),
         "image/webp" => "image/webp",
         _ => return Err("Food recognition only supports JPEG, PNG, or WebP frames.".to_string()),
     };
+    if encoded.len() > HUGGING_FACE_MAX_IMAGE_BYTES.div_ceil(3) * 4 {
+        return Err("Food recognition image was too large.".to_string());
+    }
     let bytes = general_purpose::STANDARD
         .decode(encoded)
         .map_err(|_| "Food recognition could not decode the captured frame.".to_string())?;
@@ -396,29 +401,6 @@ fn parse_image_data_url(image_data_url: &str) -> Result<(&'static str, Vec<u8>),
     }
 
     Ok((content_type, bytes))
-}
-
-fn hugging_face_error_message(body: &[u8], status: reqwest::StatusCode) -> String {
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return "Food recognition needs a Hugging Face token with Inference Providers access."
-            .to_string();
-    }
-
-    let error = serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|payload| {
-            payload
-                .get("error")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        });
-
-    match error {
-        Some(message) if !message.trim().is_empty() => {
-            format!("Food recognition failed: {}", message.trim())
-        }
-        _ => format!("Food recognition returned {status}"),
-    }
 }
 
 fn normalize_response(

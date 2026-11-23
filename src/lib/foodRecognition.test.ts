@@ -30,6 +30,18 @@ describe("foodRecognition", () => {
     ]);
   });
 
+  it("rejects an oversized streamed response without a declared length", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(64 * 1024 + 1)) },
+      cancel,
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(stream));
+
+    await expect(recognizeFoodInImage("data:image/jpeg;base64,aGVsbG8=")).rejects.toThrow("too large");
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("uses the local recognition proxy in browser preview mode", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify([{ label: "french_fries", score: 0.94 }]), {

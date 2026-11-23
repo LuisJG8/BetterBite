@@ -1,3 +1,4 @@
+import { readBoundedResponseText } from "./readBoundedResponse";
 import { invoke } from "@tauri-apps/api/core";
 
 export const FOOD_RECOGNITION_MODEL = "nateraw/food";
@@ -14,15 +15,10 @@ export interface FoodRecognitionResult {
   model: string;
 }
 
-interface HuggingFaceClassificationResult {
-  label?: unknown;
-  score?: unknown;
-}
-
-export async function recognizeFoodInImage(imageDataUrl: string): Promise<FoodRecognitionResult | null> {
-  const results = isTauriRuntime()
+export async function recognizeFoodInImage(imageDataUrl: string, signal?: AbortSignal): Promise<FoodRecognitionResult | null> {
+  const results = isTauriRuntime() && !import.meta.env.DEV
     ? await invoke<FoodRecognitionResult[]>("classify_food_image", { imageDataUrl })
-    : await classifyFoodImageInBrowser(imageDataUrl);
+    : await classifyFoodImageInBrowser(imageDataUrl, signal);
   const bestResult = normalizeFoodRecognitionResults(results)[0];
 
   return bestResult && bestResult.score >= FOOD_RECOGNITION_MIN_SCORE ? bestResult : null;
@@ -39,19 +35,25 @@ export function normalizeFoodRecognitionResults(value: unknown): FoodRecognition
     .sort((left, right) => right.score - left.score);
 }
 
-async function classifyFoodImageInBrowser(imageDataUrl: string): Promise<FoodRecognitionResult[]> {
+async function classifyFoodImageInBrowser(imageDataUrl: string, signal?: AbortSignal): Promise<FoodRecognitionResult[]> {
   const image = dataUrlToBlob(imageDataUrl);
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), FOOD_RECOGNITION_TIMEOUT_MS);
 
-  let response: Response;
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener("abort", abort, { once: true });
+
   try {
-    response = await fetch(LOCAL_FOOD_RECOGNITION_URL, {
+    const response = await fetch(LOCAL_FOOD_RECOGNITION_URL, {
       method: "POST",
       headers: browserFoodRecognitionHeaders(image.type),
       body: image,
       signal: controller.signal,
     });
+    const payload = await readBoundedJsonResponse(response);
+    if (!response.ok) throw new Error(huggingFaceErrorMessage(payload, response.status));
+    return normalizeFoodRecognitionResults(payload);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Food recognition timed out.");
@@ -59,15 +61,8 @@ async function classifyFoodImageInBrowser(imageDataUrl: string): Promise<FoodRec
     throw error;
   } finally {
     globalThis.clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abort);
   }
-
-  const payload = await readBoundedJsonResponse(response);
-
-  if (!response.ok) {
-    throw new Error(huggingFaceErrorMessage(payload, response.status));
-  }
-
-  return normalizeFoodRecognitionResults(payload);
 }
 
 function browserFoodRecognitionHeaders(contentType: string): HeadersInit {
@@ -78,15 +73,7 @@ function browserFoodRecognitionHeaders(contentType: string): HeadersInit {
 }
 
 async function readBoundedJsonResponse(response: Response): Promise<unknown> {
-  const contentLength = Number(response.headers.get("content-length") ?? 0);
-  if (contentLength > FOOD_RECOGNITION_MAX_RESPONSE_BYTES) {
-    throw new Error("Food recognition response was too large.");
-  }
-
-  const text = await response.text();
-  if (text.length > FOOD_RECOGNITION_MAX_RESPONSE_BYTES) {
-    throw new Error("Food recognition response was too large.");
-  }
+  const text = await readBoundedResponseText(response, FOOD_RECOGNITION_MAX_RESPONSE_BYTES, "Food recognition");
 
   try {
     return JSON.parse(text) as unknown;
@@ -100,7 +87,7 @@ function normalizeFoodRecognitionResult(value: unknown): FoodRecognitionResult |
     return null;
   }
 
-  const label = value.label.trim().replace(/_/g, " ");
+  const label = value.label.trim().replace(/_/g, " ").slice(0, 240);
   if (!label) {
     return null;
   }
@@ -108,7 +95,7 @@ function normalizeFoodRecognitionResult(value: unknown): FoodRecognitionResult |
   return {
     label,
     score: clampScore(value.score),
-    model: typeof value.model === "string" && value.model.trim() ? value.model.trim() : FOOD_RECOGNITION_MODEL,
+    model: typeof value.model === "string" && value.model.trim() ? value.model.trim().slice(0, 240) : FOOD_RECOGNITION_MODEL,
   };
 }
 
@@ -132,7 +119,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 function huggingFaceErrorMessage(payload: unknown, status: number): string {
   if (isRecord(payload) && typeof payload.error === "string" && payload.error.trim()) {
-    return payload.error.trim();
+    return payload.error.trim().slice(0, 240);
   }
 
   if (status === 401 || status === 403) {

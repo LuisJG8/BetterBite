@@ -1,5 +1,6 @@
+import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { defineConfig, loadEnv, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin, type PreviewServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 
 const HUGGING_FACE_FOOD_MODEL = "nateraw/food";
@@ -31,19 +32,25 @@ export default defineConfig(({ mode }) => {
 });
 
 function foodRecognitionProxy(env: Record<string, string>): Plugin {
+  function attach(server: ViteDevServer | PreviewServer) {
+    server.middlewares.use("/api/food-recognition", async (request, response) => {
+      const controller = new AbortController();
+      response.once("close", () => controller.abort());
+      try {
+        await handleFoodRecognitionRequest(request, response, env, controller.signal);
+      } catch (error) {
+        if (response.destroyed) return;
+        sendJson(response, 502, {
+          error: error instanceof Error ? error.message : "Food recognition is unavailable.",
+        });
+      }
+    });
+  }
+
   return {
     name: "betterbite-food-recognition-proxy",
-    configureServer(server) {
-      server.middlewares.use("/api/food-recognition", async (request, response) => {
-        try {
-          await handleFoodRecognitionRequest(request, response, env);
-        } catch (error) {
-          sendJson(response, 500, {
-            error: error instanceof Error && error.message ? error.message : "Food recognition proxy failed.",
-          });
-        }
-      });
-    },
+    configureServer: attach,
+    configurePreviewServer: attach,
   };
 }
 
@@ -51,33 +58,57 @@ async function handleFoodRecognitionRequest(
   request: IncomingMessage,
   response: ServerResponse,
   env: Record<string, string>,
+  signal: AbortSignal,
 ): Promise<void> {
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Food recognition expects POST." });
     return;
   }
 
-  const token = env.HUGGING_FACE_API_TOKEN || env.HF_TOKEN || env.VITE_HUGGING_FACE_TOKEN;
-  if (!token?.trim()) {
+  const peer = request.socket.remoteAddress;
+  if (peer !== "127.0.0.1" && peer !== "::1" && peer !== "::ffff:127.0.0.1") {
+    sendJson(response, 403, { error: "Food recognition requires a local preview connection." });
+    return;
+  }
+
+  const origin = request.headers.origin;
+  if (origin && ![`http://${request.headers.host}`, `https://${request.headers.host}`].includes(origin)) {
+    sendJson(response, 403, { error: "Use the food scanner from this app." });
+    return;
+  }
+
+  const token = env.HUGGING_FACE_API_TOKEN?.trim() || env.HF_TOKEN?.trim();
+  if (!token) {
     sendJson(response, 401, {
-      error: "Set HF_TOKEN or HUGGING_FACE_API_TOKEN to run nateraw/food recognition.",
+      error: "Food recognition is unavailable until the service is configured.",
     });
     return;
   }
 
   const contentType = request.headers["content-type"];
-  if (typeof contentType !== "string" || !/^image\/(?:jpeg|png|webp)/i.test(contentType)) {
+  if (typeof contentType !== "string" || !/^image\/(?:jpeg|png|webp)$/i.test(contentType)) {
     sendJson(response, 415, { error: "Food recognition expects a JPEG, PNG, or WebP image." });
     return;
   }
 
-  const image = await readBoundedRequestBody(request, FOOD_RECOGNITION_MAX_IMAGE_BYTES);
-  const primary = await classifyWithHuggingFaceModel(HUGGING_FACE_FOOD_MODEL, image, contentType, token);
+  if (Number(request.headers["content-length"]) > FOOD_RECOGNITION_MAX_IMAGE_BYTES) {
+    sendJson(response, 413, { error: "Food recognition image was too large." });
+    return;
+  }
+  const image = await readBoundedBody(request.iterator({ destroyOnReturn: false }), FOOD_RECOGNITION_MAX_IMAGE_BYTES);
+  if (image === null) {
+    request.resume();
+    sendJson(response, 413, { error: "Food recognition image was too large." });
+    return;
+  }
+  if (!image.length) {
+    sendJson(response, 400, { error: "Food recognition needs an image." });
+    return;
+  }
+  const primary = await classifyWithHuggingFaceModel(HUGGING_FACE_FOOD_MODEL, image, contentType, token, signal);
 
   if (primary.status !== 200) {
-    response.statusCode = primary.status;
-    response.setHeader("Content-Type", "application/json");
-    response.end(primary.body);
+    sendJson(response, primary.status, { error: `Food recognition service returned ${primary.status}.` });
     return;
   }
 
@@ -87,7 +118,7 @@ async function handleFoodRecognitionRequest(
     return;
   }
 
-  const fallback = await classifyWithHuggingFaceModel(HUGGING_FACE_WHOLE_FOOD_MODEL, image, contentType, token);
+  const fallback = await classifyWithHuggingFaceModel(HUGGING_FACE_WHOLE_FOOD_MODEL, image, contentType, token, signal);
   if (fallback.status !== 200) {
     sendJson(response, 200, primaryResults);
     return;
@@ -105,7 +136,8 @@ async function classifyWithHuggingFaceModel(
   image: Buffer,
   contentType: string,
   token: string,
-): Promise<{ body: string; payload: unknown; status: number }> {
+  signal: AbortSignal,
+): Promise<{ payload: unknown; status: number }> {
   const huggingFaceResponse = await fetch(`${HUGGING_FACE_MODEL_URL}${model}`, {
     method: "POST",
     headers: {
@@ -113,12 +145,17 @@ async function classifyWithHuggingFaceModel(
       Authorization: `Bearer ${token.trim()}`,
       "Content-Type": contentType,
     },
-    body: image,
+    body: new Uint8Array(image),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
+    redirect: "error",
   });
-  const body = await readBoundedResponseText(huggingFaceResponse, FOOD_RECOGNITION_MAX_RESPONSE_BYTES);
+  if (!huggingFaceResponse.body) throw new Error("Food recognition returned an empty response.");
+  const stream = Readable.fromWeb(huggingFaceResponse.body);
+  const bytes = await readBoundedBody(stream, FOOD_RECOGNITION_MAX_RESPONSE_BYTES);
+  if (!bytes) throw new Error("Food recognition response was too large.");
+  const body = bytes.toString("utf8");
 
   return {
-    body,
     payload: safeJsonParse(body),
     status: huggingFaceResponse.status,
   };
@@ -185,7 +222,7 @@ function canonicalWholeFoodLabel(label: string): string | null {
   };
   const normalized = firstLabel.replace(/\s+/g, "_");
 
-  return knownFoods[normalized] ?? null;
+  return Object.hasOwn(knownFoods, normalized) ? knownFoods[normalized] : null;
 }
 
 function safeJsonParse(text: string): unknown {
@@ -196,36 +233,22 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
-async function readBoundedRequestBody(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
+async function readBoundedBody(stream: AsyncIterable<Uint8Array>, maxBytes: number): Promise<Buffer | null> {
   const chunks: Buffer[] = [];
   let byteLength = 0;
 
-  for await (const chunk of request) {
+  for await (const chunk of stream) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     byteLength += buffer.byteLength;
 
     if (byteLength > maxBytes) {
-      throw new Error("Food recognition image was too large.");
+      return null;
     }
 
     chunks.push(buffer);
   }
 
-  if (byteLength === 0) {
-    throw new Error("Food recognition needs an image.");
-  }
-
   return Buffer.concat(chunks, byteLength);
-}
-
-async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
-  const text = await response.text();
-
-  if (text.length > maxBytes) {
-    throw new Error("Food recognition response was too large.");
-  }
-
-  return text;
 }
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {

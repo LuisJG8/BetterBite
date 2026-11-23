@@ -269,7 +269,7 @@ export default function App() {
   const [showBrowserScanner, setShowBrowserScanner] = useState(false);
   const [browserCameraStream, setBrowserCameraStream] = useState<MediaStream | null>(null);
   const [browserCameraError, setBrowserCameraError] = useState<string | null>(null);
-  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your laptop camera...");
+  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your camera...");
   const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
   const [foodScanResult, setFoodScanResult] = useState<FoodRecognitionResult | null>(null);
   const [swapDetail, setSwapDetail] = useState<SwapDetail | null>(null);
@@ -421,22 +421,26 @@ export default function App() {
     setFoodScanResult(null);
     setScanCameraMode(mode);
 
-    if (canUseLaptopCameraPreview()) {
+    if (isBrowserCameraPreviewSupported() && (mode === "food" || !isTauriRuntime() || !isLikelyMobileRuntime())) {
       void startBrowserCameraScanner();
       return;
     }
 
     setShowBrowserScanner(false);
 
-    if (isTauriRuntime()) {
+    if (mode === "barcode" && isTauriRuntime()) {
       void handleScanWithCamera();
       return;
     }
 
-    setError("Camera preview needs browser camera access. Type the barcode below if camera scanning is unavailable.");
+    setShowScanEntry(true);
+    setError(mode === "food"
+      ? "This device cannot preview food with its camera. You can still look up a product by barcode."
+      : "Camera access is unavailable. Type the barcode below.");
   }
 
   function handleScanFoodPress() {
+    handleTabChange("scan");
     startScanSession("food");
   }
 
@@ -460,7 +464,7 @@ export default function App() {
     browserCameraStreamRef.current = null;
     setBrowserCameraStream(null);
     setBrowserCameraError(null);
-    setBrowserCameraStatus("Starting your laptop camera...");
+    setBrowserCameraStatus("Starting your camera...");
     setShowBrowserScanner(true);
 
     try {
@@ -479,7 +483,7 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: "user" },
+          facingMode: { ideal: isLikelyMobileRuntime() ? "environment" : "user" },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -504,10 +508,11 @@ export default function App() {
   }
 
   function handleBrowserScannerClose() {
+    setShowScanEntry(!foodScanResult);
     stopBrowserCameraStream();
     setShowBrowserScanner(false);
     setBrowserCameraError(null);
-    setBrowserCameraStatus("Starting your laptop camera...");
+    setBrowserCameraStatus("Starting your camera...");
   }
 
   function handleBrowserBarcodeDetected(scannedBarcode: string) {
@@ -765,7 +770,7 @@ export default function App() {
             foodScanResult={foodScanResult}
             onBarcodeChange={setBarcode}
             onSubmit={handleSubmit}
-            onScanMenuPress={handleScanFoodPress}
+            onScanFoodPress={handleScanFoodPress}
             onRestartOnboardingTest={handleRestartOnboardingTest}
           />
 
@@ -1266,7 +1271,7 @@ function DashboardScanScreen({
   foodScanResult,
   onBarcodeChange,
   onSubmit,
-  onScanMenuPress,
+  onScanFoodPress,
   onRestartOnboardingTest,
 }: {
   mode: "home" | "scan";
@@ -1277,13 +1282,13 @@ function DashboardScanScreen({
   foodScanResult: FoodRecognitionResult | null;
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onScanMenuPress: () => void;
+  onScanFoodPress: () => void;
   onRestartOnboardingTest: () => void;
 }) {
   const isScanMode = mode === "scan";
-  const introTitle = isScanMode ? "Scan a barcode" : "Hello, Alex!";
+  const introTitle = isScanMode ? (foodScanResult ? "Food scan" : "Scan a barcode") : "Hello, Alex!";
   const introCopy = isScanMode
-    ? "Point your package barcode at the camera to see cleaner swaps."
+    ? (foodScanResult ? "Here’s what your camera recognized." : "Point your package barcode at the camera to see cleaner swaps.")
     : "Ready to make healthy choices today?";
 
   return (
@@ -1323,7 +1328,7 @@ function DashboardScanScreen({
 
       {!isScanMode && (
         <section className="space-y-3 px-5 pt-5">
-          <HomeActionButton imageSrc={menuPhoto} label="Scan Menu" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanMenuPress} />
+          <HomeActionButton imageSrc={menuPhoto} label="Scan Food" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanFoodPress} />
           <HomeActionButton imageSrc={recipeBuilderPhoto} label="Recipe Builder" icon={<FileText size={19} strokeWidth={2.5} />} />
         </section>
       )}
@@ -1367,7 +1372,8 @@ function BrowserScannerPanel({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scanTimerRef = useRef(0);
-  const isDetectingRef = useRef(false);
+  const [shareFrames, setShareFrames] = useState(false);
+  const [recognitionError, setRecognitionError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const onDetectedRef = useRef(onDetected);
   const onFoodDetectedRef = useRef(onFoodDetected);
@@ -1387,7 +1393,6 @@ function BrowserScannerPanel({
   const stopDetection = useCallback(() => {
     window.clearTimeout(scanTimerRef.current);
     scanTimerRef.current = 0;
-    isDetectingRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -1399,6 +1404,7 @@ function BrowserScannerPanel({
     video.srcObject = stream;
 
     void video.play().catch((playError: unknown) => {
+      if (video.srcObject !== stream) return;
       setLocalError(getBrowserCameraErrorMessage(playError));
       stopDetection();
     });
@@ -1411,41 +1417,25 @@ function BrowserScannerPanel({
   }, [stopDetection, stream]);
 
   useEffect(() => {
-    if (!stream) {
-      setFoodRecognitionStatus(mode === "food" ? "Starting camera preview..." : "Camera preview is active.");
-    }
-  }, [mode, stream]);
+    const onVisibilityChange = () => {
+      if (document.hidden) setShareFrames(false);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
 
   useEffect(() => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
+    const requestId = ++requestIdRef.current;
+    const controller = new AbortController();
     stopDetection();
     setLocalError(null);
     setFoodRecognitionResult(null);
     lastFoodDetectionKeyRef.current = null;
-    setFoodRecognitionStatus(mode === "food" ? "Point the camera at a food." : "Camera preview is active.");
-
-    if (!stream) {
-      return () => {
-        requestIdRef.current += 1;
-        stopDetection();
-      };
-    }
-
-    const video = videoRef.current;
-    if (!video) {
-      return () => {
-        requestIdRef.current += 1;
-        stopDetection();
-      };
-    }
-
     const isBarcodeMode = mode === "barcode";
+    const video = videoRef.current;
+    setFoodRecognitionStatus(stream ? "Point the camera at a food." : "Starting camera preview…");
+    if (!stream || !video || (!isBarcodeMode && !shareFrames)) return;
     const detector = isBarcodeMode ? createBrowserBarcodeDetector() : null;
-
-    if (isBarcodeMode && !detector) {
-      setLocalError("Camera preview is on, but this browser does not expose barcode detection. Try Chrome or Safari with camera permissions enabled.");
-    }
 
     const scheduleNextScan = (delay: number) => {
       if (requestIdRef.current === requestId) {
@@ -1458,17 +1448,10 @@ function BrowserScannerPanel({
         return;
       }
 
-      if (isDetectingRef.current) {
-        scheduleNextScan(180);
-        return;
-      }
-
       if (!videoRef.current || videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         scheduleNextScan(180);
         return;
       }
-
-      isDetectingRef.current = true;
 
       try {
         if (isBarcodeMode) {
@@ -1477,6 +1460,7 @@ function BrowserScannerPanel({
           }
 
           const detections = await detector.detect(videoRef.current);
+          if (requestIdRef.current !== requestId) return;
           const match = detections.find((item) => item.rawValue?.trim());
 
           if (match?.rawValue) {
@@ -1488,7 +1472,7 @@ function BrowserScannerPanel({
         } else {
           setFoodRecognitionStatus("Checking this frame for food...");
           const frame = captureVideoFrameAsDataUrl(videoRef.current);
-          const foodResult = await recognizeFoodInImage(frame);
+          const foodResult = await recognizeFoodInImage(frame, controller.signal);
 
           if (requestIdRef.current !== requestId) {
             return;
@@ -1516,33 +1500,34 @@ function BrowserScannerPanel({
         if (!isBarcodeMode) {
           lastFoodDetectionKeyRef.current = null;
           setFoodRecognitionResult(null);
-          setFoodRecognitionStatus(getFoodRecognitionRetryMessage(detectError));
+          setRecognitionError(getFoodRecognitionErrorMessage(detectError));
+          setShareFrames(false);
+          return;
         } else {
           setLocalError(getBrowserCameraErrorMessage(detectError));
           stopDetection();
           return;
         }
-      } finally {
-        isDetectingRef.current = false;
       }
 
       scheduleNextScan(isBarcodeMode ? 180 : 1400);
     };
 
-    if (isBarcodeMode ? detector : true) {
-      scheduleNextScan(isBarcodeMode ? 180 : 700);
-    }
+    scheduleNextScan(isBarcodeMode ? 180 : 700);
 
     return () => {
       requestIdRef.current += 1;
+      controller.abort();
       stopDetection();
     };
-  }, [mode, stopDetection, stream]);
+  }, [mode, shareFrames, stopDetection, stream]);
 
   const displayError = error ?? localError;
   const isBarcodeMode = mode === "barcode";
   const panelTitle = isBarcodeMode ? "Scan a barcode" : "Scan food";
-  const panelStatus = isBarcodeMode ? status : foodRecognitionStatus;
+  const panelStatus = isBarcodeMode ? status : recognitionError ?? (shareFrames || !stream
+    ? foodRecognitionStatus
+    : "Food recognition sends camera frames to Hugging Face while it is on.");
 
   return (
     <section
@@ -1564,7 +1549,11 @@ function BrowserScannerPanel({
         </button>
         <div className="mt-5 min-w-0">
           <div className="inline-flex rounded-full border border-white/18 bg-black/34 p-1 shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-md">
-            <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => onModeChange("barcode")} />
+            <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => {
+              setShareFrames(false);
+              setRecognitionError(null);
+              onModeChange("barcode");
+            }} />
             <ScanModeButton active={!isBarcodeMode} label="Scan food" onClick={() => onModeChange("food")} />
           </div>
         </div>
@@ -1584,11 +1573,23 @@ function BrowserScannerPanel({
           <div className="rounded-[16px] border border-white/14 bg-black/42 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.32)] backdrop-blur-md">
             <div className="flex items-start gap-3">
               <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
-                {isBarcodeMode || foodRecognitionResult ? <CheckCircle2 size={17} /> : <Loader2 className="animate-spin" size={17} />}
+                {isBarcodeMode || foodRecognitionResult || !shareFrames ? <CheckCircle2 size={17} /> : <Loader2 className="animate-spin" size={17} />}
               </span>
               <div className="min-w-0">
                 <p className="text-[11px] font-black uppercase tracking-[0.14em] text-white/72">{isBarcodeMode ? "Barcode scanner" : "Food scanner"}</p>
                 <p className="mt-1 text-sm font-semibold leading-5 text-white">{panelStatus}</p>
+                {!isBarcodeMode && stream && (
+                  <button
+                    type="button"
+                    className="mt-3 min-h-11 rounded-full bg-white px-4 text-sm font-bold text-[#063F41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    onClick={() => {
+                      setRecognitionError(null);
+                      setShareFrames(!shareFrames);
+                    }}
+                  >
+                    {shareFrames ? "Stop food recognition" : recognitionError ? "Retry food recognition" : "Start food recognition"}
+                  </button>
+                )}
                 {!isBarcodeMode && foodRecognitionResult && (
                   <p className="mt-1 text-xs font-bold capitalize leading-4 text-white/68">
                     {foodRecognitionResult.label} · {Math.round(foodRecognitionResult.score * 100)}%
@@ -3718,10 +3719,6 @@ function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
 }
 
-function canUseLaptopCameraPreview(): boolean {
-  return isBrowserCameraPreviewSupported() && !isLikelyMobileRuntime();
-}
-
 function isLikelyMobileRuntime(): boolean {
   if (typeof navigator === "undefined") {
     return false;
@@ -3741,7 +3738,7 @@ function getBrowserCameraErrorMessage(error: unknown): string {
     }
 
     if (error.name === "NotFoundError") {
-      return "No camera was found on this laptop.";
+      return "No camera was found on this device.";
     }
 
     if (error.name === "NotReadableError") {
@@ -3776,15 +3773,9 @@ function getBrowserCameraBlockedMessage(): string {
   return `Camera permission is blocked for this site. Allow camera access${hostCopy} in your browser settings, then tap Try camera again.`;
 }
 
-function getFoodRecognitionRetryMessage(error: unknown): string {
-  const message =
-    typeof error === "string"
-      ? error
-      : error instanceof Error && error.message
-        ? error.message
-        : "Food recognition is unavailable.";
-
-  return `${message} Keeping the camera on and retrying.`;
+function getFoodRecognitionErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  return error instanceof Error && error.message ? error.message : "Food recognition is unavailable.";
 }
 
 function captureVideoFrameAsDataUrl(video: HTMLVideoElement): string {

@@ -24,7 +24,10 @@ class LazyZxingBrowserBarcodeDetector implements BrowserBarcodeDetector {
 }
 
 async function getZxingBarcodeDetector(): Promise<BrowserBarcodeDetector> {
-  zxingDetectorPromise ??= createZxingBarcodeDetector();
+  zxingDetectorPromise ??= createZxingBarcodeDetector().catch((error: unknown) => {
+    zxingDetectorPromise = null;
+    throw error;
+  });
   return zxingDetectorPromise;
 }
 
@@ -33,6 +36,8 @@ async function createZxingBarcodeDetector(): Promise<BrowserBarcodeDetector> {
   const reader = new BrowserMultiFormatReader();
   reader.possibleFormats = [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.CODE_128];
 
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
   return {
     async detect(source: ImageBitmapSource): Promise<BrowserDetectedBarcode[]> {
       if (!isVideoElement(source)) {
@@ -40,18 +45,13 @@ async function createZxingBarcodeDetector(): Promise<BrowserBarcodeDetector> {
       }
 
       try {
-        const canvas = document.createElement("canvas");
-        canvas.width = source.videoWidth || source.clientWidth || 0;
-        canvas.height = source.videoHeight || source.clientHeight || 0;
-        if (canvas.width === 0 || canvas.height === 0) {
+        const { videoWidth, videoHeight } = source;
+        if (!videoWidth || !videoHeight || !context) {
           return [];
         }
 
-        const context = canvas.getContext("2d");
-        if (!context) {
-          return [];
-        }
-
+        if (canvas.width !== videoWidth) canvas.width = videoWidth;
+        if (canvas.height !== videoHeight) canvas.height = videoHeight;
         context.drawImage(source, 0, 0, canvas.width, canvas.height);
         const result = await reader.decodeFromCanvas(canvas);
         const rawValue = result.getText().trim();
@@ -72,14 +72,18 @@ function barcodeDetectorConstructor(): BrowserBarcodeDetectorConstructor | null 
   return detector ?? null;
 }
 
-export function createBrowserBarcodeDetector(): BrowserBarcodeDetector | null {
+export function createBrowserBarcodeDetector(): BrowserBarcodeDetector {
   const Detector = barcodeDetectorConstructor();
 
   if (!Detector) {
     return new LazyZxingBrowserBarcodeDetector();
   }
 
-  return new Detector({ formats: [...BROWSER_BARCODE_FORMATS] });
+  try {
+    return new Detector({ formats: [...BROWSER_BARCODE_FORMATS] });
+  } catch {
+    return new LazyZxingBrowserBarcodeDetector();
+  }
 }
 
 export function isBrowserCameraPreviewSupported(): boolean {

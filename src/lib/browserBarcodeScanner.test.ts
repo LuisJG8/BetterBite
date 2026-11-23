@@ -42,6 +42,14 @@ describe("browserBarcodeScanner", () => {
     expect(createBrowserBarcodeDetector()).not.toBeNull();
   });
 
+  it("uses the fallback if the native detector rejects the requested formats", () => {
+    vi.stubGlobal("BarcodeDetector", class {
+      constructor() { throw new Error("Unsupported formats"); }
+    });
+
+    expect(createBrowserBarcodeDetector().detect).toBeTypeOf("function");
+  });
+
   it("returns no fallback barcode result for unsupported frame sources", async () => {
     vi.stubGlobal("navigator", {
       mediaDevices: {

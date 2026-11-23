@@ -84,6 +84,14 @@ Product lookup uses Open Food Facts, so use a real packaged-food barcode when tr
 
 If a barcode is not available in Open Food Facts, the app will show a product-not-found message.
 
+## Trying Food Recognition
+
+For local development or `pnpm preview`, set `HF_TOKEN` in a local `.env` file or the server environment, then restart the server. The token needs Hugging Face Inference Providers access. The recognition proxy accepts loopback connections. Android development can use a USB or emulator connection with port forwarding to the local server.
+
+Choose **Scan Food**, then **Start food recognition** to share frames from the camera with Hugging Face. **Stop food recognition** ends sharing. Barcode detection runs on the device.
+
+A packaged Tauri app reads the token from its process environment. Static web hosting needs a same-origin backend implementing `/api/food-recognition`. A mobile distribution needs a service that holds the provider token before offering shared inference to its users.
+
 ## Troubleshooting
 
 If `pnpm` is not found, run:
