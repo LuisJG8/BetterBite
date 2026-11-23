@@ -1,7 +1,8 @@
 import "maplibre-gl/dist/maplibre-gl.css";
+import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 import { AlertTriangle, Camera, CheckCircle2, Heart, Leaf, Loader2, LocateFixed, Search, SlidersHorizontal, Star } from "lucide-react";
-import maplibregl, { AttributionControl, Marker, type Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
+import { AttributionControl, Marker, Map as MapLibreMap, setWorkerUrl, type StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_NEARBY_RADIUS_MILES,
@@ -12,6 +13,8 @@ import {
   type RestaurantDietFilter,
   type RestaurantMapResult,
 } from "../lib/restaurantMap";
+
+setWorkerUrl(mapWorkerUrl);
 
 type LocationStatus = "idle" | "requesting" | "ready" | "blocked";
 
@@ -125,7 +128,7 @@ export function MapScreen({ onScanMenu }: { onScanMenu?: (restaurantName: string
       return;
     }
 
-    const map = new maplibregl.Map({
+    const map = new MapLibreMap({
       attributionControl: false,
       center: toLngLat(mapCenter),
       container: mapContainerRef.current,

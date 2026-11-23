@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, ChevronLeft, HelpCircle, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { rankMenuDishes } from "../lib/menuRecommendations";
 import type {
   FoodAvoidance,
@@ -43,7 +43,10 @@ export function MenuResults({
   onRescan: () => void;
 }) {
   const [craving, setCraving] = useState<MenuCravingCategory | null>(null);
-  const [selectedDish, setSelectedDish] = useState<MenuDishRecommendation | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previousAnalysis, setPreviousAnalysis] = useState(analysis);
+  const containerRef = useRef<HTMLElement>(null);
+  const nextFocus = useRef<string | null>(null);
   const categories = useMemo(
     () => Array.from(new Set(analysis.dishes.map((dish) => dish.category))).sort((left, right) => CATEGORY_LABELS[left].localeCompare(CATEGORY_LABELS[right])),
     [analysis.dishes],
@@ -53,20 +56,40 @@ export function MenuResults({
     [analysis.dishes, craving, foodsToAvoid],
   );
 
-  useEffect(() => {
+  const selectedDish = recommendations.find((dish) => dish.id === selectedId);
+
+  useLayoutEffect(() => {
+    if (!nextFocus.current) return;
+    const controls = containerRef.current?.querySelectorAll<HTMLElement>("[data-menu-focus]");
+    const target = Array.from(controls ?? []).find((element) => element.dataset.menuFocus === nextFocus.current);
+    target?.focus();
+    nextFocus.current = null;
+  }, [craving, selectedId]);
+
+  if (previousAnalysis !== analysis) {
+    setPreviousAnalysis(analysis);
     setCraving(null);
-    setSelectedDish(null);
-  }, [analysis.id]);
+    setSelectedId(null);
+  }
 
   if (selectedDish) {
-    return <MenuDishDetail dish={selectedDish} onBack={() => setSelectedDish(null)} />;
+    return (
+      <MenuDishDetail
+        dish={selectedDish}
+        sectionRef={containerRef}
+        onBack={() => {
+          nextFocus.current = `dish-${selectedDish.id}`;
+          setSelectedId(null);
+        }}
+      />
+    );
   }
 
   return (
-    <section className="mx-5 mt-4 overflow-hidden rounded-[22px] border border-[#B7D7D2] bg-white shadow-[0_12px_30px_rgba(0,105,107,0.10)]">
+    <section ref={containerRef} className="[overflow-wrap:anywhere] mx-5 mt-4 overflow-hidden rounded-[22px] border border-[#B7D7D2] bg-white shadow-[0_12px_30px_rgba(0,105,107,0.10)]">
       <header className="border-b border-[#DDE8E9] bg-[#EEF8F5] p-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#00696B]">Menu analyzed</p>
             <h3 className="mt-1 text-xl font-black text-[#191C1D]">{analysis.restaurantName ?? "Restaurant menu"}</h3>
             <p className="mt-1 text-sm font-semibold text-[#566164]">
@@ -94,7 +117,8 @@ export function MenuResults({
                 key={category}
                 type="button"
                 className="min-h-12 rounded-xl border border-[#D5E5E2] bg-[#F8FAFB] px-3 text-left text-sm font-black text-[#294A4B] transition hover:border-[#00A8AB] hover:bg-[#EEF8F5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-                onClick={() => setCraving(category)}
+                data-menu-focus={`category-${category}`}
+                onClick={() => { nextFocus.current = "matches"; setCraving(category); }}
               >
                 {CATEGORY_LABELS[category]}
               </button>
@@ -106,7 +130,8 @@ export function MenuResults({
           <button
             type="button"
             className="inline-flex min-h-10 items-center gap-1 rounded-full bg-[#EEF7F8] px-3 text-xs font-black text-[#00696B]"
-            onClick={() => setCraving(null)}
+            data-menu-focus="matches"
+            onClick={() => { nextFocus.current = `category-${craving}`; setCraving(null); }}
           >
             <ChevronLeft size={15} /> Change craving
           </button>
@@ -124,16 +149,17 @@ export function MenuResults({
                 key={dish.id}
                 type="button"
                 className="w-full rounded-2xl border border-[#DDE8E9] bg-white p-4 text-left shadow-[0_5px_16px_rgba(0,105,107,0.06)] transition hover:border-[#86CFCB] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/35"
-                onClick={() => setSelectedDish(dish)}
+                data-menu-focus={`dish-${dish.id}`}
+                onClick={() => { nextFocus.current = "detail"; setSelectedId(dish.id); }}
               >
                 <span className="flex items-start justify-between gap-3">
                   <span className="min-w-0">
                     <span className="block text-[10px] font-black uppercase tracking-[0.13em] text-[#16806F]">
-                      {index === 0 ? "Closest better choice" : dish.cravingMatch === "closest" ? "Same craving" : "Related option"}
+                      {dish.cravingMatch === "closest" ? (index === 0 ? "Closest better choice" : "Same craving") : "Related option"}
                     </span>
                     <span className="mt-1 block text-lg font-black leading-6 text-[#191C1D]">{dish.name}</span>
                   </span>
-                  {dish.price && <span className="shrink-0 text-sm font-black text-[#294A4B]">{dish.price}</span>}
+                  {dish.price && <span className="max-w-[38%] shrink-0 text-sm font-black text-[#294A4B]">{dish.price}</span>}
                 </span>
                 <span className="mt-1.5 line-clamp-2 block text-sm font-semibold leading-5 text-[#566164]">{dish.description}</span>
                 <span className="mt-3 block rounded-xl bg-[#EEF8F5] px-3 py-2 text-xs font-bold leading-5 text-[#315354]">{dish.reason}</span>
@@ -158,21 +184,25 @@ export function MenuResults({
   );
 }
 
-function MenuDishDetail({ dish, onBack }: { dish: MenuDishRecommendation; onBack: () => void }) {
+function MenuDishDetail({ dish, sectionRef, onBack }: {
+  dish: MenuDishRecommendation;
+  sectionRef: React.Ref<HTMLElement>;
+  onBack: () => void;
+}) {
   const serverQuestions = getServerQuestions(dish.concerns);
 
   return (
-    <section className="mx-5 mt-4 overflow-hidden rounded-[22px] border border-[#B7D7D2] bg-white shadow-[0_12px_30px_rgba(0,105,107,0.10)]">
+    <section ref={sectionRef} className="[overflow-wrap:anywhere] mx-5 mt-4 overflow-hidden rounded-[22px] border border-[#B7D7D2] bg-white shadow-[0_12px_30px_rgba(0,105,107,0.10)]">
       <header className="border-b border-[#DDE8E9] bg-[#EEF8F5] p-4">
-        <button type="button" className="inline-flex min-h-10 items-center gap-1 rounded-full bg-white px-3 text-xs font-black text-[#00696B]" onClick={onBack}>
+        <button type="button" data-menu-focus="detail" className="inline-flex min-h-10 items-center gap-1 rounded-full bg-white px-3 text-xs font-black text-[#00696B]" onClick={onBack}>
           <ChevronLeft size={15} /> Menu matches
         </button>
         <div className="mt-3 flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#16806F]">{dish.cravingMatch === "closest" ? "Same craving" : "Related option"}</p>
             <h3 className="mt-1 text-2xl font-black leading-8 text-[#191C1D]">{dish.name}</h3>
           </div>
-          {dish.price && <span className="shrink-0 text-base font-black text-[#294A4B]">{dish.price}</span>}
+          {dish.price && <span className="max-w-[38%] shrink-0 text-base font-black text-[#294A4B]">{dish.price}</span>}
         </div>
         <p className="mt-2 text-sm font-semibold leading-6 text-[#566164]">{dish.description}</p>
       </header>

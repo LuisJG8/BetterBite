@@ -28,7 +28,7 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
 import menuPhoto from "./assets/menu-photo.jpg";
@@ -272,7 +272,7 @@ export default function App() {
   const [showBrowserScanner, setShowBrowserScanner] = useState(false);
   const [browserCameraStream, setBrowserCameraStream] = useState<MediaStream | null>(null);
   const [browserCameraError, setBrowserCameraError] = useState<string | null>(null);
-  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your laptop camera...");
+  const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your camera...");
   const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
   const [menuAnalysis, setMenuAnalysis] = useState<MenuAnalysis | null>(null);
   const [menuRestaurantName, setMenuRestaurantName] = useState<string | undefined>();
@@ -289,6 +289,7 @@ export default function App() {
   const scanResultRef = useRef<HTMLDivElement>(null);
   const contentScrollRef = useRef<HTMLElement>(null);
   const historyDetailRequestRef = useRef(0);
+  const lookupRequestRef = useRef(0);
   const browserCameraStreamRef = useRef<MediaStream | null>(null);
   const browserCameraRequestRef = useRef(0);
 
@@ -351,7 +352,9 @@ export default function App() {
       return;
     }
 
+    const lookupId = ++lookupRequestRef.current;
     const normalized = normalizeBarcode(input);
+    setMenuAnalysis(null);
 
     setIsLoading(true);
     setError(null);
@@ -359,6 +362,7 @@ export default function App() {
 
     try {
       const nextProduct = await fetchProductByBarcode(normalized);
+      if (lookupId !== lookupRequestRef.current) return;
       const nextScore = scoreProduct(nextProduct, settings);
       setProduct(nextProduct);
       setBarcode(normalized);
@@ -377,10 +381,11 @@ export default function App() {
       setActivityDays(recordActivity("barcode_scan"));
       scrollScanResultIntoView();
     } catch (lookupError) {
+      if (lookupId !== lookupRequestRef.current) return;
       const message = lookupError instanceof Error ? lookupError.message : "Could not fetch this product.";
       setError(message);
     } finally {
-      setIsLoading(false);
+      if (lookupId === lookupRequestRef.current) setIsLoading(false);
     }
   }
 
@@ -424,8 +429,8 @@ export default function App() {
     setError(null);
     setScanCameraMode(mode);
 
-    if (canUseLaptopCameraPreview()) {
-      void startBrowserCameraScanner();
+    if (mode === "menu" || canUseLaptopCameraPreview()) {
+      void startBrowserCameraScanner(mode);
       return;
     }
 
@@ -455,7 +460,7 @@ export default function App() {
     setBrowserCameraStream(null);
   }
 
-  async function startBrowserCameraScanner() {
+  async function startBrowserCameraScanner(mode: ScanCameraMode) {
     const requestId = browserCameraRequestRef.current + 1;
     browserCameraRequestRef.current = requestId;
 
@@ -463,10 +468,15 @@ export default function App() {
     browserCameraStreamRef.current = null;
     setBrowserCameraStream(null);
     setBrowserCameraError(null);
-    setBrowserCameraStatus("Starting your laptop camera...");
+    setBrowserCameraStatus("Starting your camera...");
     setShowBrowserScanner(true);
 
     try {
+      if (!isBrowserCameraPreviewSupported()) {
+        setBrowserCameraError("Camera access is unavailable on this device.");
+        return;
+      }
+
       const permissionState = await getBrowserCameraPermissionState();
 
       if (browserCameraRequestRef.current !== requestId) {
@@ -482,7 +492,7 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: "user" },
+          facingMode: { ideal: mode === "menu" ? "environment" : "user" },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -510,7 +520,7 @@ export default function App() {
     stopBrowserCameraStream();
     setShowBrowserScanner(false);
     setBrowserCameraError(null);
-    setBrowserCameraStatus("Starting your laptop camera...");
+    setBrowserCameraStatus("Starting your camera...");
   }
 
   function handleBrowserBarcodeDetected(scannedBarcode: string) {
@@ -521,8 +531,11 @@ export default function App() {
     void handleLookup(scannedBarcode);
   }
 
-  async function handleMenuAnalyze(pages: MenuPageUpload[]) {
-    const analysis = await analyzeMenuPages({ pages, restaurantName: menuRestaurantName });
+  async function handleMenuAnalyze(pages: MenuPageUpload[], signal: AbortSignal) {
+    const analysis = await analyzeMenuPages({ pages, restaurantName: menuRestaurantName, signal });
+    if (signal.aborted) return;
+    lookupRequestRef.current += 1;
+    setIsLoading(false);
     setMenuAnalysis(analysis);
     setProduct(null);
     setShowScanEntry(false);
@@ -907,12 +920,18 @@ export default function App() {
             stream={browserCameraStream}
             status={browserCameraStatus}
             error={browserCameraError}
-            onModeChange={setScanCameraMode}
+            onModeChange={(nextMode) => {
+              if (nextMode === scanCameraMode) return;
+              setScanCameraMode(nextMode);
+              if (nextMode === "menu" || scanCameraMode === "menu") {
+                void startBrowserCameraScanner(nextMode);
+              }
+            }}
             onClose={handleBrowserScannerClose}
             onDetected={handleBrowserBarcodeDetected}
             onMenuAnalyze={handleMenuAnalyze}
             restaurantName={menuRestaurantName}
-            onRetry={() => void startBrowserCameraScanner()}
+            onRetry={() => void startBrowserCameraScanner(scanCameraMode)}
           />
         )}
       </div>
@@ -1375,11 +1394,22 @@ function BrowserScannerPanel({
   onModeChange: (mode: ScanCameraMode) => void;
   onClose: () => void;
   onDetected: (value: string) => void;
-  onMenuAnalyze: (pages: MenuPageUpload[]) => Promise<void>;
+  onMenuAnalyze: (pages: MenuPageUpload[], signal: AbortSignal) => Promise<void>;
   restaurantName?: string;
   onRetry: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    const opener = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, []);
+
   const scanTimerRef = useRef(0);
   const isDetectingRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -1452,6 +1482,7 @@ function BrowserScannerPanel({
         }
 
         const detections = await detector.detect(videoRef.current);
+        if (requestIdRef.current !== requestId) return;
         const match = detections.find((item) => item.rawValue?.trim());
 
         if (match?.rawValue) {
@@ -1503,16 +1534,16 @@ function BrowserScannerPanel({
   const panelTitle = isBarcodeMode ? "Scan a barcode" : isMenuMode ? `Scan ${restaurantName ? `${restaurantName} ` : "a "}menu` : "Scan food";
 
   return (
-    <section
-      className="absolute inset-0 z-50 flex h-full w-full flex-col overflow-hidden bg-black text-white"
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      className="fixed inset-0 m-auto flex h-[100dvh] max-h-none w-full max-w-[430px] flex-col overflow-hidden bg-black p-0 text-white backdrop:bg-black/50 md:h-[900px] md:max-h-[calc(100dvh-3rem)] md:rounded-[34px]"
+      onCancel={(event) => { event.preventDefault(); onClose(); }}
       aria-label={panelTitle}
     >
       <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" autoPlay muted playsInline />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.64)_0%,rgba(0,0,0,0.18)_40%,rgba(0,0,0,0.74)_100%)]" />
 
-      <header className="relative z-10 flex flex-col items-start px-5 pt-[calc(env(safe-area-inset-top)+18px)]">
+      <header className="relative z-10 flex shrink-0 flex-col items-start px-5 pt-[calc(env(safe-area-inset-top)+18px)]">
         <button
           className="shrink-0 rounded-full border border-white/25 bg-black/30 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-white/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
           type="button"
@@ -1546,7 +1577,7 @@ function BrowserScannerPanel({
         )}
       </div>
 
-      {isMenuMode && <MenuCaptureControls videoRef={videoRef} onAnalyze={onMenuAnalyze} />}
+      {isMenuMode && <MenuCaptureControls videoRef={videoRef} cameraReady={Boolean(stream) && !displayError} cameraError={displayError} onRetry={onRetry} onAnalyze={onMenuAnalyze} />}
 
       {displayError && !isMenuMode && (
         <div className="relative z-10 px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
@@ -1565,7 +1596,7 @@ function BrowserScannerPanel({
           </div>
         </div>
       )}
-    </section>
+    </dialog>
   );
 }
 
@@ -3668,7 +3699,7 @@ function getBrowserCameraErrorMessage(error: unknown): string {
     }
 
     if (error.name === "NotFoundError") {
-      return "No camera was found on this laptop.";
+      return "No camera was found on this device.";
     }
 
     if (error.name === "NotReadableError") {
