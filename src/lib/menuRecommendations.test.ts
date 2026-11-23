@@ -57,6 +57,22 @@ describe("rankMenuDishes", () => {
     expect(preferenceSandwich?.suggestedChange).toContain("grilled");
   });
 
+  it("keeps the selected format ahead of a better-scoring different format", () => {
+    const burger: MenuDish = { ...dishes[0], concerns: ["fried", "seed-oil-likely", "high-sodium", "dairy"] };
+    const sandwich: MenuDish = { ...dishes[1], concerns: [] };
+    const ranked = rankMenuDishes({ dishes: [sandwich, burger], craving: "burgers", foodsToAvoid: ["seed-oils", "high-sodium", "dairy"] });
+    expect(ranked.map((dish) => dish.id)).toEqual([burger.id, sandwich.id]);
+  });
+
+  it("requires an identifiable match for the chosen craving", () => {
+    const special: MenuDish = { ...dishes[2], category: "other" };
+    const wings: MenuDish = { ...dishes[1], name: "Buffalo Wings" };
+    for (const craving of ["drinks", "desserts", "pizza", "sides", "burgers"] as const) {
+      expect(rankMenuDishes({ dishes: [special, wings], craving })).toEqual([]);
+    }
+    expect(rankMenuDishes({ dishes: [dishes[0]], craving: "chicken" })).toEqual([]);
+  });
+
   it("uses stable alphabetical ordering when scores tie", () => {
     const tie = [
       { ...dishes[0], id: "z", name: "Z Burger" },
