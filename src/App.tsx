@@ -418,7 +418,8 @@ export default function App() {
     void handleLookup();
   }
 
-  function startScanSession(mode: ScanCameraMode = "barcode") {
+  function startScanSession(mode: ScanCameraMode = "barcode", restaurantName?: string) {
+    setMenuRestaurantName(restaurantName?.trim() || undefined);
     setShowScanEntry(true);
     setError(null);
     setScanCameraMode(mode);
@@ -439,8 +440,7 @@ export default function App() {
   }
 
   function handleScanMenuPress(restaurantName?: string) {
-    setMenuRestaurantName(restaurantName?.trim() || undefined);
-    startScanSession("menu");
+    startScanSession("menu", restaurantName);
   }
 
   function handleScanTabPress() {
@@ -770,7 +770,7 @@ export default function App() {
             onBarcodeChange={setBarcode}
             onSubmit={handleSubmit}
             onScanMenuPress={() => handleScanMenuPress()}
-            onMenuRescan={() => handleScanMenuPress(menuAnalysis?.restaurantName)}
+            onMenuRescan={() => handleScanMenuPress()}
             onRestartOnboardingTest={handleRestartOnboardingTest}
           />
 
@@ -1527,6 +1527,11 @@ function BrowserScannerPanel({
             <ScanModeButton active={isMenuMode} label="Menu" onClick={() => onModeChange("menu")} />
           </div>
         </div>
+        {isMenuMode && restaurantName && (
+          <p className="mt-2 max-w-full truncate rounded-full bg-black/60 px-3 py-1.5 text-xs font-black text-white backdrop-blur">
+            {restaurantName}
+          </p>
+        )}
       </header>
 
       <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6">
@@ -1542,12 +1547,6 @@ function BrowserScannerPanel({
       </div>
 
       {isMenuMode && <MenuCaptureControls videoRef={videoRef} onAnalyze={onMenuAnalyze} />}
-
-      {isMenuMode && restaurantName && (
-        <p className="pointer-events-none absolute left-1/2 top-[140px] z-20 max-w-[80%] -translate-x-1/2 truncate rounded-full bg-black/60 px-3 py-1.5 text-xs font-black text-white backdrop-blur">
-          {restaurantName}
-        </p>
-      )}
 
       {displayError && !isMenuMode && (
         <div className="relative z-10 px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">

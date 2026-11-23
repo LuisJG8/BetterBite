@@ -313,11 +313,11 @@ export function MapScreen({ onScanMenu }: { onScanMenu?: (restaurantName: string
               <div className="mb-2 flex justify-center px-4">
                 <button
                   type="button"
-                  className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[#00696B] px-5 text-sm font-black text-white shadow-[0_12px_26px_rgba(0,64,66,0.28)] transition hover:bg-[#005B5D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
+                  className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full bg-[#00696B] px-5 text-sm font-black text-white shadow-[0_12px_26px_rgba(0,64,66,0.28)] transition hover:bg-[#005B5D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00C5C8]/45"
                   onClick={() => onScanMenu(selectedRestaurant.name)}
                 >
-                  <Camera size={17} strokeWidth={2.5} />
-                  Scan {selectedRestaurant.chain} menu
+                  <Camera className="shrink-0" size={17} strokeWidth={2.5} />
+                  <span className="truncate">Scan {selectedRestaurant.name} menu</span>
                 </button>
               </div>
             )}
