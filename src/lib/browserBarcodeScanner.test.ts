@@ -29,7 +29,7 @@ describe("browserBarcodeScanner", () => {
     expect(createBrowserBarcodeDetector()).toBeInstanceOf(FakeBarcodeDetector);
   });
 
-  it("still reports camera preview support when BarcodeDetector is missing", () => {
+  it("falls back to ZXing when BarcodeDetector is missing", () => {
     vi.stubGlobal("navigator", {
       mediaDevices: {
         getUserMedia: vi.fn(),
@@ -37,9 +37,30 @@ describe("browserBarcodeScanner", () => {
     });
     vi.stubGlobal("BarcodeDetector", undefined);
 
-    expect(isBrowserCameraScanSupported()).toBe(false);
+    expect(isBrowserCameraScanSupported()).toBe(true);
     expect(isBrowserCameraPreviewSupported()).toBe(true);
-    expect(createBrowserBarcodeDetector()).toBeNull();
+    expect(createBrowserBarcodeDetector()).not.toBeNull();
+  });
+
+  it("uses the fallback if the native detector rejects the requested formats", () => {
+    vi.stubGlobal("BarcodeDetector", class {
+      constructor() { throw new Error("Unsupported formats"); }
+    });
+
+    expect(createBrowserBarcodeDetector().detect).toBeTypeOf("function");
+  });
+
+  it("returns no fallback barcode result for unsupported frame sources", async () => {
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn(),
+      },
+    });
+    vi.stubGlobal("BarcodeDetector", undefined);
+
+    const detector = createBrowserBarcodeDetector();
+
+    await expect(detector?.detect({} as ImageBitmapSource)).resolves.toEqual([]);
   });
 
   it("reports preview unsupported when getUserMedia is missing", () => {

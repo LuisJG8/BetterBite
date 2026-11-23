@@ -1,3 +1,4 @@
+import { readBoundedResponseText } from "./readBoundedResponse";
 import { invoke } from "@tauri-apps/api/core";
 import type { OpenFoodFactsApiResponse, OpenFoodFactsApiProduct, Product } from "../types";
 import { getBarcodeError, normalizeBarcode } from "./barcode";
@@ -126,57 +127,8 @@ function isTauriRuntime(): boolean {
 }
 
 async function readBoundedJsonResponse(response: Response): Promise<OpenFoodFactsApiResponse> {
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > OPEN_FOOD_FACTS_MAX_RESPONSE_BYTES) {
-    throw new Error("Open Food Facts response was too large.");
-  }
-
-  const body = await readBoundedResponseText(response);
+  const body = await readBoundedResponseText(response, OPEN_FOOD_FACTS_MAX_RESPONSE_BYTES, "Open Food Facts");
   return JSON.parse(body) as OpenFoodFactsApiResponse;
-}
-
-async function readBoundedResponseText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-
-  if (!reader) {
-    throw new Error("Could not read Open Food Facts response.");
-  }
-
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      totalBytes += value.byteLength;
-      if (totalBytes > OPEN_FOOD_FACTS_MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error("Open Food Facts response was too large.");
-      }
-
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  return new TextDecoder().decode(joinChunks(chunks, totalBytes));
-}
-
-function joinChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return body;
 }
 
 function firstText(...values: Array<string | undefined>): string {

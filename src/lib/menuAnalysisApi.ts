@@ -1,3 +1,4 @@
+import { readBoundedResponseText } from "./readBoundedResponse";
 import type {
   MenuAnalysis,
   MenuConcern,
@@ -80,7 +81,7 @@ export async function analyzeMenuPages({
     throw new Error(response.status === 413 ? "These menu pages are too large to analyze." : "Menu analysis is unavailable right now.");
   }
 
-  const responseText = await readMenuResponse(response);
+  const responseText = await readBoundedResponseText(response, MENU_RESPONSE_MAX_BYTES, "Menu analysis");
 
   let value: unknown;
   try {
@@ -90,34 +91,6 @@ export async function analyzeMenuPages({
   }
 
   return parseMenuAnalysis(value, pages.length);
-}
-
-async function readMenuResponse(response: Response): Promise<string> {
-  const tooLarge = "The menu analysis response was unexpectedly large.";
-  if (Number(response.headers.get("Content-Length")) > MENU_RESPONSE_MAX_BYTES) {
-    void response.body?.cancel().catch(() => {});
-    throw new Error(tooLarge);
-  }
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-
-  let bytes = 0;
-  let text = "";
-  const decoder = new TextDecoder();
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) return text + decoder.decode();
-      bytes += value.byteLength;
-      if (bytes > MENU_RESPONSE_MAX_BYTES) {
-        void reader.cancel().catch(() => {});
-        throw new Error(tooLarge);
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 export function validatePages(pages: MenuPageUpload[]): void {

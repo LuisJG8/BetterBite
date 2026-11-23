@@ -31,6 +31,7 @@ import {
 import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
+import foodPhoto from "./assets/onboarding-food-hero.png";
 import menuPhoto from "./assets/menu-photo.jpg";
 import profilePhoto from "./assets/luis-gonzalez-profile.jpeg";
 import recipeBuilderPhoto from "./assets/recipe-builder-photo.jpg";
@@ -44,6 +45,7 @@ import { getAlternatives } from "./lib/alternatives";
 import { buildActivityChart, formatActivityWeekRange, type ActivityChart } from "./lib/activityChart";
 import { getBarcodeError, normalizeBarcode } from "./lib/barcode";
 import { createBrowserBarcodeDetector, isBrowserCameraPreviewSupported } from "./lib/browserBarcodeScanner";
+import { FOOD_RECOGNITION_MIN_SCORE, recognizeFoodInImage, type FoodRecognitionResult } from "./lib/foodRecognition";
 import { filterHistoryItems } from "./lib/historyFilters";
 import { analyzeMenuPages, type MenuPageUpload } from "./lib/menuAnalysisApi";
 import { fetchProductByBarcode } from "./lib/openFoodFacts";
@@ -274,6 +276,7 @@ export default function App() {
   const [browserCameraError, setBrowserCameraError] = useState<string | null>(null);
   const [browserCameraStatus, setBrowserCameraStatus] = useState("Starting your camera...");
   const [scanCameraMode, setScanCameraMode] = useState<ScanCameraMode>("barcode");
+  const [foodScanResult, setFoodScanResult] = useState<FoodRecognitionResult | null>(null);
   const [menuAnalysis, setMenuAnalysis] = useState<MenuAnalysis | null>(null);
   const [menuRestaurantName, setMenuRestaurantName] = useState<string | undefined>();
   const [swapDetail, setSwapDetail] = useState<SwapDetail | null>(null);
@@ -344,21 +347,23 @@ export default function App() {
   }
 
   async function handleLookup(input = barcode) {
+    const lookupId = ++lookupRequestRef.current;
     const validationError = getBarcodeError(input);
 
     if (validationError) {
+      setIsLoading(false);
       setProduct(null);
       setError(validationError);
       return;
     }
 
-    const lookupId = ++lookupRequestRef.current;
     const normalized = normalizeBarcode(input);
     setMenuAnalysis(null);
 
     setIsLoading(true);
     setError(null);
     setProduct(null);
+    setFoodScanResult(null);
 
     try {
       const nextProduct = await fetchProductByBarcode(normalized);
@@ -424,24 +429,35 @@ export default function App() {
   }
 
   function startScanSession(mode: ScanCameraMode = "barcode", restaurantName?: string) {
+    lookupRequestRef.current += 1;
+    setIsLoading(false);
     setMenuRestaurantName(restaurantName?.trim() || undefined);
-    setShowScanEntry(true);
+    setShowScanEntry(false);
     setError(null);
+    setFoodScanResult(null);
     setScanCameraMode(mode);
 
-    if (mode === "menu" || canUseLaptopCameraPreview()) {
+    if (mode === "menu" || (isBrowserCameraPreviewSupported() && (mode === "food" || !isTauriRuntime() || !isLikelyMobileRuntime()))) {
       void startBrowserCameraScanner(mode);
       return;
     }
 
     setShowBrowserScanner(false);
 
-    if (isTauriRuntime()) {
+    if (mode === "barcode" && isTauriRuntime()) {
       void handleScanWithCamera();
       return;
     }
 
-    setError("Camera preview needs browser camera access. Type the barcode below if camera scanning is unavailable.");
+    setShowScanEntry(true);
+    setError(mode === "food"
+      ? "This device cannot preview food with its camera. You can still look up a product by barcode."
+      : "Camera access is unavailable. Type the barcode below.");
+  }
+
+  function handleScanFoodPress() {
+    handleTabChange("scan");
+    startScanSession("food");
   }
 
   function handleScanMenuPress(restaurantName?: string) {
@@ -492,7 +508,7 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: mode === "menu" ? "environment" : "user" },
+          facingMode: { ideal: mode === "menu" || isLikelyMobileRuntime() ? "environment" : "user" },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -527,8 +543,20 @@ export default function App() {
     stopBrowserCameraStream();
     setShowBrowserScanner(false);
     setShowScanEntry(true);
+    setFoodScanResult(null);
     setBarcode(scannedBarcode);
     void handleLookup(scannedBarcode);
+  }
+
+  function handleBrowserFoodDetected(result: FoodRecognitionResult) {
+    lookupRequestRef.current += 1;
+    setIsLoading(false);
+    setMenuAnalysis(null);
+    setShowScanEntry(false);
+    setProduct(null);
+    setError(null);
+    setActiveTab("scan");
+    setFoodScanResult(result);
   }
 
   async function handleMenuAnalyze(pages: MenuPageUpload[], signal: AbortSignal) {
@@ -537,6 +565,8 @@ export default function App() {
     lookupRequestRef.current += 1;
     setIsLoading(false);
     setMenuAnalysis(analysis);
+    setFoodScanResult(null);
+    setError(null);
     setProduct(null);
     setShowScanEntry(false);
     handleBrowserScannerClose();
@@ -778,10 +808,12 @@ export default function App() {
             error={error}
             isLoading={isLoading}
             showBarcodeEntry={showScanEntry}
-            menuAnalysis={menuAnalysis}
-            foodsToAvoid={onboardingProfile.foodsToAvoid}
+            foodScanResult={foodScanResult}
             onBarcodeChange={setBarcode}
             onSubmit={handleSubmit}
+            onScanFoodPress={handleScanFoodPress}
+            menuAnalysis={menuAnalysis}
+            foodsToAvoid={onboardingProfile.foodsToAvoid}
             onScanMenuPress={() => handleScanMenuPress()}
             onMenuRescan={() => handleScanMenuPress()}
             onRestartOnboardingTest={handleRestartOnboardingTest}
@@ -927,8 +959,12 @@ export default function App() {
                 void startBrowserCameraScanner(nextMode);
               }
             }}
-            onClose={handleBrowserScannerClose}
+            onClose={() => {
+              setShowScanEntry(!foodScanResult && !menuAnalysis);
+              handleBrowserScannerClose();
+            }}
             onDetected={handleBrowserBarcodeDetected}
+            onFoodDetected={handleBrowserFoodDetected}
             onMenuAnalyze={handleMenuAnalyze}
             restaurantName={menuRestaurantName}
             onRetry={() => void startBrowserCameraScanner(scanCameraMode)}
@@ -1288,10 +1324,12 @@ function DashboardScanScreen({
   error,
   isLoading,
   showBarcodeEntry,
-  menuAnalysis,
-  foodsToAvoid,
+  foodScanResult,
   onBarcodeChange,
   onSubmit,
+  onScanFoodPress,
+  menuAnalysis,
+  foodsToAvoid,
   onScanMenuPress,
   onMenuRescan,
   onRestartOnboardingTest,
@@ -1301,26 +1339,28 @@ function DashboardScanScreen({
   error: string | null;
   isLoading: boolean;
   showBarcodeEntry: boolean;
-  menuAnalysis: MenuAnalysis | null;
-  foodsToAvoid: FoodAvoidance[];
+  foodScanResult: FoodRecognitionResult | null;
   onBarcodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onScanFoodPress: () => void;
+  menuAnalysis: MenuAnalysis | null;
+  foodsToAvoid: FoodAvoidance[];
   onScanMenuPress: () => void;
   onMenuRescan: () => void;
   onRestartOnboardingTest: () => void;
 }) {
   const isScanMode = mode === "scan";
-  const introTitle = isScanMode ? "Scan a barcode" : "Hello, Alex!";
+  const introTitle = isScanMode ? (foodScanResult ? "Food scan" : "Scan a barcode") : "Hello, Alex!";
   const introCopy = isScanMode
-    ? "Point your package barcode at the camera to see cleaner swaps."
+    ? (foodScanResult ? "Here’s what your camera recognized." : "Point your package barcode at the camera to see cleaner swaps.")
     : "Ready to make healthy choices today?";
 
   return (
     <div className="-mx-5 min-h-full bg-[#F8FAFB] pb-6">
-      <section className="px-5 pt-5">
+      {(!isScanMode || !menuAnalysis) && <section className="px-5 pt-5">
         <h2 className="text-[28px] font-black leading-9 text-[#191C1D]">{introTitle}</h2>
         <p className="mt-0.5 text-[16px] font-medium leading-6 text-[#3B4949]">{introCopy}</p>
-      </section>
+      </section>}
 
       {!isScanMode && (
         <section className="pt-9">
@@ -1348,6 +1388,7 @@ function DashboardScanScreen({
         />
       )}
 
+      {isScanMode && foodScanResult && <FoodScanResultCard result={foodScanResult} />}
       {isScanMode && menuAnalysis && (
         <MenuResults analysis={menuAnalysis} foodsToAvoid={foodsToAvoid} onRescan={onMenuRescan} />
       )}
@@ -1355,6 +1396,7 @@ function DashboardScanScreen({
       {!isScanMode && (
         <section className="space-y-3 px-5 pt-5">
           <HomeActionButton imageSrc={menuPhoto} label="Scan Menu" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanMenuPress} />
+          <HomeActionButton imageSrc={foodPhoto} label="Scan Food" icon={<Camera size={19} strokeWidth={2.5} />} onClick={onScanFoodPress} />
           <HomeActionButton imageSrc={recipeBuilderPhoto} label="Recipe Builder" icon={<FileText size={19} strokeWidth={2.5} />} />
         </section>
       )}
@@ -1383,6 +1425,7 @@ function BrowserScannerPanel({
   onModeChange,
   onClose,
   onDetected,
+  onFoodDetected,
   onMenuAnalyze,
   restaurantName,
   onRetry,
@@ -1394,6 +1437,7 @@ function BrowserScannerPanel({
   onModeChange: (mode: ScanCameraMode) => void;
   onClose: () => void;
   onDetected: (value: string) => void;
+  onFoodDetected: (result: FoodRecognitionResult) => void;
   onMenuAnalyze: (pages: MenuPageUpload[], signal: AbortSignal) => Promise<void>;
   restaurantName?: string;
   onRetry: () => void;
@@ -1411,127 +1455,170 @@ function BrowserScannerPanel({
   }, []);
 
   const scanTimerRef = useRef(0);
-  const isDetectingRef = useRef(false);
+  const [shareFrames, setShareFrames] = useState(false);
+  const [recognitionError, setRecognitionError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const onDetectedRef = useRef(onDetected);
+  const onFoodDetectedRef = useRef(onFoodDetected);
+  const lastFoodDetectionKeyRef = useRef<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [foodRecognitionStatus, setFoodRecognitionStatus] = useState("Point the camera at a food.");
+  const [foodRecognitionResult, setFoodRecognitionResult] = useState<FoodRecognitionResult | null>(null);
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
   }, [onDetected]);
 
+  useEffect(() => {
+    onFoodDetectedRef.current = onFoodDetected;
+  }, [onFoodDetected]);
+
   const stopDetection = useCallback(() => {
     window.clearTimeout(scanTimerRef.current);
     scanTimerRef.current = 0;
-    isDetectingRef.current = false;
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
   }, []);
 
   useEffect(() => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    stopDetection();
-    setLocalError(null);
-
-    if (!stream) {
-      return () => {
-        requestIdRef.current += 1;
-        stopDetection();
-      };
-    }
-
     const video = videoRef.current;
-    if (!video) {
-      return () => {
-        requestIdRef.current += 1;
-        stopDetection();
-      };
+    if (!video || !stream) {
+      return;
     }
 
     video.srcObject = stream;
 
-    const detector = mode === "barcode" ? createBrowserBarcodeDetector() : null;
+    void video.play().catch((playError: unknown) => {
+      if (video.srcObject !== stream) return;
+      setLocalError(getBrowserCameraErrorMessage(playError));
+      stopDetection();
+    });
 
-    if (mode === "barcode" && !detector) {
-      setLocalError("Camera preview is on, but this browser does not expose barcode detection. Try Chrome or Safari with camera permissions enabled.");
-    }
+    return () => {
+      if (video.srcObject === stream) {
+        video.srcObject = null;
+      }
+    };
+  }, [stopDetection, stream]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) setShareFrames(false);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    const requestId = ++requestIdRef.current;
+    const controller = new AbortController();
+    stopDetection();
+    setLocalError(null);
+    setFoodRecognitionResult(null);
+    lastFoodDetectionKeyRef.current = null;
+    const isBarcodeMode = mode === "barcode";
+    const video = videoRef.current;
+    setFoodRecognitionStatus(stream ? "Point the camera at a food." : "Starting camera preview…");
+    if (!stream || !video || mode === "menu" || (mode === "food" && !shareFrames)) return;
+    const detector = isBarcodeMode ? createBrowserBarcodeDetector() : null;
+
+    const scheduleNextScan = (delay: number) => {
+      if (requestIdRef.current === requestId) {
+        scanTimerRef.current = window.setTimeout(scanLoop, delay);
+      }
+    };
 
     const scanLoop = async () => {
       if (requestIdRef.current !== requestId) {
         return;
       }
 
-      if (isDetectingRef.current) {
-        scanTimerRef.current = window.setTimeout(scanLoop, 180);
-        return;
-      }
-
       if (!videoRef.current || videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        scanTimerRef.current = window.setTimeout(scanLoop, 180);
+        scheduleNextScan(180);
         return;
       }
-
-      isDetectingRef.current = true;
 
       try {
-        if (!detector) {
-          return;
-        }
+        if (isBarcodeMode) {
+          if (!detector) {
+            return;
+          }
 
-        const detections = await detector.detect(videoRef.current);
-        if (requestIdRef.current !== requestId) return;
-        const match = detections.find((item) => item.rawValue?.trim());
+          const detections = await detector.detect(videoRef.current);
+          if (requestIdRef.current !== requestId) return;
+          const match = detections.find((item) => item.rawValue?.trim());
 
-        if (match?.rawValue) {
-          requestIdRef.current += 1;
-          stopDetection();
-          onDetectedRef.current(match.rawValue.trim());
-          return;
+          if (match?.rawValue) {
+            requestIdRef.current += 1;
+            stopDetection();
+            onDetectedRef.current(match.rawValue.trim());
+            return;
+          }
+        } else {
+          setFoodRecognitionStatus("Checking this frame for food...");
+          const frame = captureVideoFrameAsDataUrl(videoRef.current);
+          const foodResult = await recognizeFoodInImage(frame, controller.signal);
+
+          if (requestIdRef.current !== requestId) {
+            return;
+          }
+
+          if (foodResult) {
+            const resultKey = `${foodResult.label}:${Math.round(foodResult.score * 1000)}`;
+            setFoodRecognitionResult(foodResult);
+            setFoodRecognitionStatus(`Found ${foodResult.label}.`);
+            if (lastFoodDetectionKeyRef.current !== resultKey) {
+              lastFoodDetectionKeyRef.current = resultKey;
+              onFoodDetectedRef.current(foodResult);
+            }
+          } else {
+            lastFoodDetectionKeyRef.current = null;
+            setFoodRecognitionResult(null);
+            setFoodRecognitionStatus(`No confident food match yet. Need ${Math.round(FOOD_RECOGNITION_MIN_SCORE * 100)}% confidence.`);
+          }
         }
       } catch (detectError) {
         if (requestIdRef.current !== requestId) {
           return;
         }
 
-        setLocalError(getBrowserCameraErrorMessage(detectError));
-        stopDetection();
-        return;
-      } finally {
-        isDetectingRef.current = false;
+        if (!isBarcodeMode) {
+          lastFoodDetectionKeyRef.current = null;
+          setFoodRecognitionResult(null);
+          setRecognitionError(getFoodRecognitionErrorMessage(detectError));
+          setShareFrames(false);
+          return;
+        } else {
+          setLocalError(getBrowserCameraErrorMessage(detectError));
+          stopDetection();
+          return;
+        }
       }
 
-      scanTimerRef.current = window.setTimeout(scanLoop, 180);
+      scheduleNextScan(isBarcodeMode ? 180 : 1400);
     };
 
-    void video.play().then(
-      () => {
-        if (requestIdRef.current === requestId) {
-          if (mode === "barcode" && detector) {
-            scanTimerRef.current = window.setTimeout(scanLoop, 180);
-          }
-        }
-      },
-      (playError: unknown) => {
-        if (requestIdRef.current === requestId) {
-          setLocalError(getBrowserCameraErrorMessage(playError));
-          stopDetection();
-        }
-      },
-    );
+    scheduleNextScan(isBarcodeMode ? 180 : 700);
 
     return () => {
       requestIdRef.current += 1;
+      controller.abort();
       stopDetection();
     };
-  }, [mode, stopDetection, stream]);
+  }, [mode, shareFrames, stopDetection, stream]);
+
+  function switchMode(next: ScanCameraMode) {
+    if (next === mode) return;
+    setShareFrames(false);
+    setRecognitionError(null);
+    onModeChange(next);
+  }
 
   const displayError = error ?? localError;
   const isBarcodeMode = mode === "barcode";
   const isMenuMode = mode === "menu";
   const panelTitle = isBarcodeMode ? "Scan a barcode" : isMenuMode ? `Scan ${restaurantName ? `${restaurantName} ` : "a "}menu` : "Scan food";
+  const panelStatus = isBarcodeMode ? status : recognitionError ?? (shareFrames || !stream
+    ? foodRecognitionStatus
+    : "Food recognition sends camera frames to Hugging Face while it is on.");
 
   return (
     <dialog
@@ -1540,7 +1627,7 @@ function BrowserScannerPanel({
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       aria-label={panelTitle}
     >
-      <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" autoPlay muted playsInline />
+      <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" autoPlay muted playsInline />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.64)_0%,rgba(0,0,0,0.18)_40%,rgba(0,0,0,0.74)_100%)]" />
 
       <header className="relative z-10 flex shrink-0 flex-col items-start px-5 pt-[calc(env(safe-area-inset-top)+18px)]">
@@ -1553,9 +1640,9 @@ function BrowserScannerPanel({
         </button>
         <div className="mt-5 min-w-0">
           <div className="inline-flex rounded-full border border-white/18 bg-black/34 p-1 shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-md">
-            <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => onModeChange("barcode")} />
-            <ScanModeButton active={mode === "food"} label="Food" onClick={() => onModeChange("food")} />
-            <ScanModeButton active={isMenuMode} label="Menu" onClick={() => onModeChange("menu")} />
+            <ScanModeButton active={isBarcodeMode} label="Barcode scan" onClick={() => switchMode("barcode")} />
+            <ScanModeButton active={mode === "food"} label="Scan food" onClick={() => onModeChange("food")} />
+            <ScanModeButton active={isMenuMode} label="Menu" onClick={() => switchMode("menu")} />
           </div>
         </div>
         {isMenuMode && restaurantName && (
@@ -1576,6 +1663,39 @@ function BrowserScannerPanel({
           <div className="h-[52vh] max-h-[520px] w-[min(82vw,350px)] rounded-[24px] border-[3px] border-dashed border-white/85 shadow-[0_0_0_9999px_rgba(0,0,0,0.12)]" aria-hidden="true" />
         )}
       </div>
+
+      {!isMenuMode && !displayError && (
+        <div className="relative z-10 mt-auto px-5 pb-[calc(env(safe-area-inset-bottom)+24px)]">
+          <div className="rounded-[16px] border border-white/14 bg-black/42 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.32)] backdrop-blur-md">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
+                {isBarcodeMode || foodRecognitionResult || !shareFrames ? <CheckCircle2 size={17} /> : <Loader2 className="animate-spin" size={17} />}
+              </span>
+              <div className="min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-white/72">{isBarcodeMode ? "Barcode scanner" : "Food scanner"}</p>
+                <p className="mt-1 text-sm font-semibold leading-5 text-white">{panelStatus}</p>
+                {!isBarcodeMode && stream && (
+                  <button
+                    type="button"
+                    className="mt-3 min-h-11 rounded-full bg-white px-4 text-sm font-bold text-[#063F41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    onClick={() => {
+                      setRecognitionError(null);
+                      setShareFrames(!shareFrames);
+                    }}
+                  >
+                    {shareFrames ? "Stop food recognition" : recognitionError ? "Retry food recognition" : "Start food recognition"}
+                  </button>
+                )}
+                {!isBarcodeMode && foodRecognitionResult && (
+                  <p className="mt-1 text-xs font-bold capitalize leading-4 text-white/68">
+                    {foodRecognitionResult.label} · {Math.round(foodRecognitionResult.score * 100)}%
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isMenuMode && <MenuCaptureControls videoRef={videoRef} cameraReady={Boolean(stream) && !displayError} cameraError={displayError} onRetry={onRetry} onAnalyze={onMenuAnalyze} />}
 
@@ -1612,6 +1732,27 @@ function ScanModeButton({ active, label, onClick }: { active: boolean; label: st
     >
       {label}
     </button>
+  );
+}
+
+function FoodScanResultCard({ result }: { result: FoodRecognitionResult }) {
+  return (
+    <section className="px-5 pt-5">
+      <div className="rounded-[18px] border border-[#BFE6D9] bg-white px-4 py-4 shadow-[0_8px_24px_rgba(0,105,107,0.08)]">
+        <div className="flex items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#DDF7EF] text-[#00696B]">
+            <CheckCircle2 size={22} strokeWidth={2.7} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#00696B]">Food recognized</p>
+            <h3 className="mt-1 text-[21px] font-black capitalize leading-6 text-[#191C1D]">{result.label}</h3>
+            <p className="mt-1 text-[13px] font-semibold leading-5 text-[#566164]">
+              Matched with {Math.round(result.score * 100)}% confidence using {result.model}.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -3676,10 +3817,6 @@ function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
 }
 
-function canUseLaptopCameraPreview(): boolean {
-  return isBrowserCameraPreviewSupported() && !isLikelyMobileRuntime();
-}
-
 function isLikelyMobileRuntime(): boolean {
   if (typeof navigator === "undefined") {
     return false;
@@ -3732,6 +3869,37 @@ function getBrowserCameraBlockedMessage(): string {
   const hostCopy = host ? ` for ${host}` : "";
 
   return `Camera permission is blocked for this site. Allow camera access${hostCopy} in your browser settings, then tap Try camera again.`;
+}
+
+function getFoodRecognitionErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  return error instanceof Error && error.message ? error.message : "Food recognition is unavailable.";
+}
+
+function captureVideoFrameAsDataUrl(video: HTMLVideoElement): string {
+  const sourceWidth = video.videoWidth || video.clientWidth;
+  const sourceHeight = video.videoHeight || video.clientHeight;
+
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error("Camera frame is not ready yet.");
+  }
+
+  const maxEdge = 512;
+  const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Camera frame capture is unavailable.");
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(video, 0, 0, width, height);
+
+  return canvas.toDataURL("image/jpeg", 0.82);
 }
 
 function recordLoginActivityOnce(date = new Date()): ActivityDay[] | null {
