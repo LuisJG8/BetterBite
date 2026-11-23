@@ -10,7 +10,7 @@ export const MENU_PAGE_LIMIT = 6;
 export const MENU_PAGE_MAX_BYTES = 8 * 1024 * 1024;
 export const MENU_UPLOAD_MAX_BYTES = 24 * 1024 * 1024;
 
-const MENU_RESPONSE_MAX_CHARACTERS = 1_000_000;
+const MENU_RESPONSE_MAX_BYTES = 1_000_000;
 const MENU_DISH_LIMIT = 200;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MENU_CATEGORIES = new Set<MenuCravingCategory>([
@@ -57,7 +57,7 @@ export async function analyzeMenuPages({
   const form = new FormData();
 
   pages.forEach((page, index) => {
-    form.append("pages", page.blob, safeFilename(page.filename, index));
+    form.append("pages", page.blob, safeFilename(page.blob.type, index));
   });
 
   const safeRestaurantName = trimText(restaurantName, 120);
@@ -69,18 +69,18 @@ export async function analyzeMenuPages({
     method: "POST",
     body: form,
     credentials: isSameOrigin(analysisUrl) ? "same-origin" : "omit",
+    redirect: "error",
+    referrerPolicy: "no-referrer",
     headers: { Accept: "application/json" },
     signal,
   });
 
   if (!response.ok) {
+    void response.body?.cancel().catch(() => {});
     throw new Error(response.status === 413 ? "These menu pages are too large to analyze." : "Menu analysis is unavailable right now.");
   }
 
-  const responseText = await response.text();
-  if (responseText.length > MENU_RESPONSE_MAX_CHARACTERS) {
-    throw new Error("The menu analysis response was unexpectedly large.");
-  }
+  const responseText = await readMenuResponse(response);
 
   let value: unknown;
   try {
@@ -90,6 +90,34 @@ export async function analyzeMenuPages({
   }
 
   return parseMenuAnalysis(value, pages.length);
+}
+
+async function readMenuResponse(response: Response): Promise<string> {
+  const tooLarge = "The menu analysis response was unexpectedly large.";
+  if (Number(response.headers.get("Content-Length")) > MENU_RESPONSE_MAX_BYTES) {
+    void response.body?.cancel().catch(() => {});
+    throw new Error(tooLarge);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+
+  let bytes = 0;
+  let text = "";
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) return text + decoder.decode();
+      bytes += value.byteLength;
+      if (bytes > MENU_RESPONSE_MAX_BYTES) {
+        void reader.cancel().catch(() => {});
+        throw new Error(tooLarge);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export function validatePages(pages: MenuPageUpload[]): void {
@@ -124,7 +152,10 @@ export function resolveAnalysisUrl(endpoint?: string): URL {
 
   const origin = globalThis.location?.origin ?? "http://localhost";
   const url = new URL(trimmedEndpoint, origin);
-  const isLocalDevelopment = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.username || url.password) {
+    throw new Error("Menu analysis endpoints cannot include credentials.");
+  }
+  const isLocalDevelopment = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalDevelopment)) {
     throw new Error("Menu analysis must use a secure HTTPS endpoint.");
   }
@@ -137,10 +168,15 @@ function parseMenuAnalysis(value: unknown, pageCount: number): MenuAnalysis {
     throw new Error("The menu analysis response is missing dishes.");
   }
 
-  const dishes = value.dishes
-    .slice(0, MENU_DISH_LIMIT)
-    .map(toMenuDish)
-    .filter((dish): dish is MenuDish => dish !== null);
+  const dishes: MenuDish[] = [];
+  const ids = new Set<string>();
+  for (const entry of value.dishes.slice(0, MENU_DISH_LIMIT)) {
+    const dish = toMenuDish(entry);
+    if (dish && !ids.has(dish.id)) {
+      ids.add(dish.id);
+      dishes.push(dish);
+    }
+  }
 
   if (dishes.length === 0) {
     throw new Error("No readable menu dishes were found. Try retaking the menu in brighter light.");
@@ -176,7 +212,7 @@ function toMenuDish(value: unknown): MenuDish | null {
     preparation: toStringList(value.preparation, 12, 80),
     positives: toStringList(value.positives, 12, 120),
     concerns: Array.isArray(value.concerns)
-      ? value.concerns.filter((concern): concern is MenuConcern => MENU_CONCERNS.has(concern as MenuConcern)).slice(0, 12)
+      ? [...new Set(value.concerns.filter((concern): concern is MenuConcern => MENU_CONCERNS.has(concern as MenuConcern)))]
       : [],
     evidence: MENU_EVIDENCE.has(value.evidence as MenuEvidenceLevel) ? (value.evidence as MenuEvidenceLevel) : "unknown",
     sourceText: trimText(value.sourceText, 800) ?? name,
@@ -194,8 +230,8 @@ function isMenuCategory(value: unknown): value is MenuCravingCategory {
   return typeof value === "string" && MENU_CATEGORIES.has(value as MenuCravingCategory);
 }
 
-function safeFilename(value: string, index: number): string {
-  const extension = value.toLowerCase().endsWith(".png") ? ".png" : value.toLowerCase().endsWith(".webp") ? ".webp" : ".jpg";
+function safeFilename(mimeType: string, index: number): string {
+  const extension = mimeType === "image/png" ? ".png" : mimeType === "image/webp" ? ".webp" : ".jpg";
   return `menu-page-${index + 1}${extension}`;
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyzeMenuPages, resolveAnalysisUrl, validatePages } from "./menuAnalysisApi";
 
-const page = { blob: new Blob(["menu"], { type: "image/jpeg" }), filename: "original name.jpg" };
+const page = { blob: new Blob(["menu"], { type: "image/jpeg" }), filename: "original name.png" };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -10,6 +10,7 @@ afterEach(() => {
 describe("menu analysis client", () => {
   it("rejects insecure remote endpoints", () => {
     expect(() => resolveAnalysisUrl("http://example.com/analyze")).toThrow(/HTTPS/);
+    expect(() => resolveAnalysisUrl("https://user:pass@example.com/analyze")).toThrow(/credentials/);
     expect(resolveAnalysisUrl("https://example.com/analyze").href).toBe("https://example.com/analyze");
   });
 
@@ -35,10 +36,11 @@ describe("menu analysis client", () => {
               category: "burgers",
               preparation: ["griddled"],
               positives: ["single patty"],
-              concerns: ["high-sodium", "not-a-real-concern"],
+              concerns: ["high-sodium", "high-sodium", "not-a-real-concern"],
               evidence: "menu-inferred",
               sourceText: "Single Burger $8",
             },
+            { id: "burger-1", name: "Duplicate", category: "burgers" },
             { id: "bad-dish", name: "Missing category" },
           ],
         }),
@@ -55,7 +57,20 @@ describe("menu analysis client", () => {
     expect(result.dishes).toHaveLength(1);
     expect(result.dishes[0].concerns).toEqual(["high-sodium"]);
     expect((form.get("pages") as File).name).toBe("menu-page-1.jpg");
+    expect(request.redirect).toBe("error");
+    expect(request.referrerPolicy).toBe("no-referrer");
     expect(request.credentials).toBe("omit");
+  });
+
+  it.each([{}, { "Content-Length": "1200000" }])("cancels oversized responses before buffering them", async (headers) => {
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(600_000)); },
+      cancel,
+    }), { headers: headers as HeadersInit });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    await expect(analyzeMenuPages({ pages: [page], endpoint: "https://api.example.com/menu" })).rejects.toThrow(/large/);
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("does not expose server error bodies", async () => {
