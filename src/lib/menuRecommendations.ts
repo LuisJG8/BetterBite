@@ -9,14 +9,14 @@ import type {
 const RELATED_CATEGORIES: Partial<Record<MenuCravingCategory, MenuCravingCategory[]>> = {
   burgers: ["chicken"],
   chicken: ["burgers", "bowls"],
-  pizza: ["other"],
   tacos: ["bowls"],
   bowls: ["tacos", "salads"],
   salads: ["bowls"],
-  sides: ["other"],
   drinks: [],
   desserts: [],
 };
+
+const MATCH_PRIORITY = { closest: 2, strong: 1, related: 0 };
 
 const AVOIDANCE_CONCERNS: Partial<Record<FoodAvoidance, MenuConcern[]>> = {
   "added-sugars": ["added-sugar"],
@@ -48,7 +48,11 @@ export function rankMenuDishes({
   return dishes
     .map((dish) => toRecommendation(dish, craving, foodsToAvoid))
     .filter((dish): dish is MenuDishRecommendation => dish !== null)
-    .sort((left, right) => right.recommendationScore - left.recommendationScore || left.name.localeCompare(right.name));
+    .sort((left, right) =>
+      MATCH_PRIORITY[right.cravingMatch] - MATCH_PRIORITY[left.cravingMatch]
+      || right.recommendationScore - left.recommendationScore
+      || left.name.localeCompare(right.name),
+    );
 }
 
 function toRecommendation(
@@ -56,14 +60,15 @@ function toRecommendation(
   craving: MenuCravingCategory,
   foodsToAvoid: FoodAvoidance[],
 ): MenuDishRecommendation | null {
-  const cravingMatch = getCravingMatch(dish.category, craving);
+  const cravingMatch = getCravingMatch(dish, craving);
   if (!cravingMatch) {
     return null;
   }
 
   const categoryScore = cravingMatch === "closest" ? 100 : cravingMatch === "strong" ? 68 : 45;
-  const concernPenalty = dish.concerns.reduce((total, concern) => total + CONCERN_PENALTIES[concern], 0);
-  const preferencePenalty = dish.concerns.reduce(
+  const concerns = [...new Set(dish.concerns)];
+  const concernPenalty = concerns.reduce((total, concern) => total + CONCERN_PENALTIES[concern], 0);
+  const preferencePenalty = concerns.reduce(
     (total, concern) => total + (foodsToAvoid.some((avoidance) => AVOIDANCE_CONCERNS[avoidance]?.includes(concern)) ? 18 : 0),
     0,
   );
@@ -81,18 +86,25 @@ function toRecommendation(
 }
 
 function getCravingMatch(
-  category: MenuCravingCategory,
+  dish: MenuDish,
   craving: MenuCravingCategory,
 ): MenuDishRecommendation["cravingMatch"] | null {
+  const { category } = dish;
   if (category === craving) {
     return "closest";
   }
 
+  if (craving === "burgers" && category === "chicken" && !/\b(burgers?|sandwich(?:es)?|sliders?)\b/i.test(dish.name)) {
+    return null;
+  }
+  if (craving === "chicken" && category !== "chicken" && !/\bchicken\b/i.test(dish.name + " " + dish.description)) {
+    return null;
+  }
   if (RELATED_CATEGORIES[craving]?.includes(category)) {
     return "strong";
   }
 
-  return category === "other" ? "related" : null;
+  return null;
 }
 
 function buildReason(dish: MenuDish, match: MenuDishRecommendation["cravingMatch"]): string {
