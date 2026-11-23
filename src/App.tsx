@@ -28,7 +28,7 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import boulderCanyonChips from "./assets/boulder-canyon-chips.avif";
 import burgerKingFries from "./assets/burger-king-fries.jpg";
 import menuPhoto from "./assets/menu-photo.jpg";
@@ -287,6 +287,7 @@ export default function App() {
   const scanResultRef = useRef<HTMLDivElement>(null);
   const contentScrollRef = useRef<HTMLElement>(null);
   const historyDetailRequestRef = useRef(0);
+  const lookupRequestRef = useRef(0);
   const browserCameraStreamRef = useRef<MediaStream | null>(null);
   const browserCameraRequestRef = useRef(0);
 
@@ -349,6 +350,7 @@ export default function App() {
       return;
     }
 
+    const lookupId = ++lookupRequestRef.current;
     const normalized = normalizeBarcode(input);
     setMenuAnalysis(null);
 
@@ -358,6 +360,7 @@ export default function App() {
 
     try {
       const nextProduct = await fetchProductByBarcode(normalized);
+      if (lookupId !== lookupRequestRef.current) return;
       const nextScore = scoreProduct(nextProduct, settings);
       setProduct(nextProduct);
       setBarcode(normalized);
@@ -376,10 +379,11 @@ export default function App() {
       setActivityDays(recordActivity("barcode_scan"));
       scrollScanResultIntoView();
     } catch (lookupError) {
+      if (lookupId !== lookupRequestRef.current) return;
       const message = lookupError instanceof Error ? lookupError.message : "Could not fetch this product.";
       setError(message);
     } finally {
-      setIsLoading(false);
+      if (lookupId === lookupRequestRef.current) setIsLoading(false);
     }
   }
 
@@ -527,6 +531,8 @@ export default function App() {
   async function handleMenuAnalyze(pages: MenuPageUpload[], signal: AbortSignal) {
     const analysis = await analyzeMenuPages({ pages, signal });
     if (signal.aborted) return;
+    lookupRequestRef.current += 1;
+    setIsLoading(false);
     setMenuAnalysis(analysis);
     setProduct(null);
     setShowScanEntry(false);
@@ -1388,10 +1394,14 @@ function BrowserScannerPanel({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
+    const opener = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
 
   const scanTimerRef = useRef(0);
