@@ -57,6 +57,7 @@ describe("foodRecognition", () => {
       "/api/food-recognition",
       expect.objectContaining({
         method: "POST",
+        redirect: "error",
         headers: {
           Accept: "application/json",
           "Content-Type": "image/jpeg",

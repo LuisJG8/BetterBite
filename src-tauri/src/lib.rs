@@ -229,6 +229,7 @@ fn hugging_face_client() -> Result<&'static reqwest::Client, String> {
         .get_or_init(|| {
             reqwest::Client::builder()
                 .user_agent("BetterBite/0.1.0 (food recognition; model: nateraw/food)")
+                .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(20))
                 .build()
                 .map_err(|error| format!("Could not initialize Hugging Face client: {error}"))

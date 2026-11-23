@@ -47,6 +47,7 @@ async function classifyFoodImageInBrowser(imageDataUrl: string, signal?: AbortSi
   try {
     const response = await fetch(LOCAL_FOOD_RECOGNITION_URL, {
       method: "POST",
+      redirect: "error",
       headers: browserFoodRecognitionHeaders(image.type),
       body: image,
       signal: controller.signal,

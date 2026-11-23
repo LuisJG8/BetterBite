@@ -18,6 +18,9 @@ interface FoodRecognitionProxyResult {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  if (env.VITE_HUGGING_FACE_TOKEN?.trim()) {
+    throw new Error("Rename VITE_HUGGING_FACE_TOKEN to HF_TOKEN so Vite cannot publish the provider token to browsers.");
+  }
 
   return {
     plugins: [react(), foodRecognitionProxy(env)],
