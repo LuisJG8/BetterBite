@@ -32,7 +32,7 @@ describe("mobile configuration", () => {
 
     for (const policy of [config.app.security.csp, config.app.security.devCsp]) {
       expect(policy).toContain("https://tile.openstreetmap.org");
-      expect(policy).toContain("worker-src 'self' blob:");
+      expect(policy).toContain("worker-src 'self';");
 
       for (const imageHost of [
         "https://i5.walmartimages.com",
