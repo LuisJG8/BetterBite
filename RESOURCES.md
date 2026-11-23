@@ -2,6 +2,10 @@
 
 ## Knowledge
 
+- [MDN: Dynamic scripting with JavaScript](https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting)
+  Official Mozilla beginner path for JavaScript fundamentals, including variables, strings, arrays, conditionals, functions, events, DOM scripting, network requests, JSON, and debugging. Use for: beginner JavaScript lessons and primary-source syntax checks.
+- [MDN: JavaScript Guide](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide)
+  Official language guide covering JavaScript grammar, control flow, functions, objects, modules, errors, and async behavior. Use for: deeper follow-up when a lesson needs more precise language semantics.
 - [Google Engineering Practices: Small CLs](https://google.github.io/eng-practices/review/developer/small-cls.html)
   Practical guide to decomposing work into reviewable changes. Use for: learning to plan slices, separate refactors from behavior changes, and avoid large unreviewable AI-generated patches.
 - [DORA Capability Catalog](https://dora.dev/capabilities/)
