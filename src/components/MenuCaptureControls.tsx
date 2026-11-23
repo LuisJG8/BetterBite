@@ -9,10 +9,16 @@ type CapturedMenuPage = MenuPageUpload & {
 
 export function MenuCaptureControls({
   videoRef,
+  cameraReady,
+  cameraError,
+  onRetry,
   onAnalyze,
 }: {
   videoRef: RefObject<HTMLVideoElement>;
-  onAnalyze: (pages: MenuPageUpload[]) => Promise<void>;
+  cameraReady: boolean;
+  cameraError: string | null;
+  onRetry: () => void;
+  onAnalyze: (pages: MenuPageUpload[], signal: AbortSignal) => Promise<void>;
 }) {
   const [pages, setPages] = useState<CapturedMenuPage[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -20,12 +26,16 @@ export function MenuCaptureControls({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const pagesRef = useRef(pages);
 
-  useEffect(() => {
-    pagesRef.current = pages;
-  }, [pages]);
+  const analysisRequest = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
 
   useEffect(() => {
-    return () => pagesRef.current.forEach((page) => URL.revokeObjectURL(page.previewUrl));
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      analysisRequest.current?.abort();
+      pagesRef.current.forEach((page) => URL.revokeObjectURL(page.previewUrl));
+    };
   }, []);
 
   async function capturePage() {
@@ -42,6 +52,7 @@ export function MenuCaptureControls({
       }
 
       const blob = await captureVideoFrame(video);
+      if (!mounted.current) return;
       addPage({ blob, filename: `menu-page-${pages.length + 1}.jpg` });
     } catch (captureError) {
       setError(captureError instanceof Error ? captureError.message : "Could not capture this menu page.");
@@ -59,7 +70,7 @@ export function MenuCaptureControls({
 
     setError(null);
     try {
-      const additions = files.slice(0, MENU_PAGE_LIMIT - pages.length).map((file) => ({ blob: file, filename: file.name }));
+      const additions = files.map((file) => ({ blob: file, filename: file.name }));
       validatePages([...pages.map(toUpload), ...additions]);
       additions.forEach(addPage);
     } catch (selectionError) {
@@ -92,18 +103,29 @@ export function MenuCaptureControls({
 
   async function analyzePages() {
     setError(null);
+    if (analysisRequest.current) return;
+    const request = new AbortController();
+    analysisRequest.current = request;
     setIsAnalyzing(true);
     try {
-      await onAnalyze(pages.map(toUpload));
+      await onAnalyze(pages.map(toUpload), request.signal);
     } catch (analysisError) {
+      if (request.signal.aborted) return;
       setError(analysisError instanceof Error ? analysisError.message : "Could not analyze these menu pages.");
     } finally {
-      setIsAnalyzing(false);
+      analysisRequest.current = null;
+      if (!request.signal.aborted) setIsAnalyzing(false);
     }
   }
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/84 to-transparent px-5 pb-[calc(env(safe-area-inset-bottom)+18px)] pt-12">
+    <div className="relative z-20 mt-auto min-h-0 overflow-y-auto bg-gradient-to-t from-black via-black/84 to-transparent px-5 pb-[calc(env(safe-area-inset-bottom)+18px)] pt-3">
+      {cameraError && (
+        <div className="mb-2 rounded-xl bg-black/75 px-3 py-2 text-sm">
+          <p role="status">{cameraError} You can still add a photo.</p>
+          <button type="button" className="min-h-10 font-bold underline" onClick={onRetry}>Try camera again</button>
+        </div>
+      )}
       <div className="mb-3 flex min-h-[68px] gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Captured menu pages">
         {pages.map((page, index) => (
           <div key={page.id} className="relative h-[68px] w-[54px] shrink-0 overflow-hidden rounded-lg border border-white/50 bg-black/50">
@@ -112,6 +134,7 @@ export function MenuCaptureControls({
               type="button"
               className="absolute right-0.5 top-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/75 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               onClick={() => removePage(page.id)}
+              disabled={isAnalyzing || isCapturing}
               aria-label={`Remove menu page ${index + 1}`}
             >
               <Trash2 size={13} />
@@ -121,7 +144,7 @@ export function MenuCaptureControls({
         {pages.length === 0 && <p className="self-center text-sm font-semibold text-white/78">Capture every page before analyzing.</p>}
       </div>
 
-      {error && <p className="mb-3 rounded-xl bg-[#FFD9D4] px-3 py-2 text-sm font-semibold text-[#7A1F13]">{error}</p>}
+      {error && <p role="alert" className="mb-3 rounded-xl bg-[#FFD9D4] px-3 py-2 text-sm font-semibold text-[#7A1F13]">{error}</p>}
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <label className="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-3 text-xs font-black text-white backdrop-blur focus-within:ring-2 focus-within:ring-white/70">
@@ -133,7 +156,7 @@ export function MenuCaptureControls({
             accept="image/jpeg,image/png,image/webp"
             multiple
             onChange={handleFileSelect}
-            disabled={pages.length >= MENU_PAGE_LIMIT || isAnalyzing}
+            disabled={pages.length >= MENU_PAGE_LIMIT || isAnalyzing || isCapturing}
           />
         </label>
 
@@ -141,7 +164,7 @@ export function MenuCaptureControls({
           type="button"
           className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-white/20 text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition active:scale-95 disabled:opacity-45"
           onClick={() => void capturePage()}
-          disabled={pages.length >= MENU_PAGE_LIMIT || isCapturing || isAnalyzing}
+          disabled={!cameraReady || pages.length >= MENU_PAGE_LIMIT || isCapturing || isAnalyzing}
           aria-label="Capture menu page"
         >
           {isCapturing ? <Loader2 className="animate-spin" size={25} /> : <Camera size={25} />}
@@ -151,7 +174,8 @@ export function MenuCaptureControls({
           type="button"
           className="flex min-h-11 items-center justify-center rounded-xl bg-[#12C8CA] px-3 text-xs font-black text-[#063F41] transition active:scale-[0.98] disabled:bg-white/18 disabled:text-white/45"
           onClick={() => void analyzePages()}
-          disabled={pages.length === 0 || isAnalyzing}
+          disabled={pages.length === 0 || isCapturing || isAnalyzing}
+          aria-label={isAnalyzing ? "Analyzing menu" : undefined}
         >
           {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : `Analyze ${pages.length || ""}`}
         </button>
