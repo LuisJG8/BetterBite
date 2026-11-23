@@ -16,9 +16,10 @@ export interface FoodRecognitionResult {
 }
 
 export async function recognizeFoodInImage(imageDataUrl: string, signal?: AbortSignal): Promise<FoodRecognitionResult | null> {
-  const results = isTauriRuntime() && !import.meta.env.DEV
+  const relay = import.meta.env.VITE_FOOD_RECOGNITION_ENDPOINT?.trim();
+  const results = !relay && isTauriRuntime() && !import.meta.env.DEV
     ? await invoke<FoodRecognitionResult[]>("classify_food_image", { imageDataUrl })
-    : await classifyFoodImageInBrowser(imageDataUrl, signal);
+    : await classifyFoodImageInBrowser(imageDataUrl, relay ? resolveFoodRelay(relay) : LOCAL_FOOD_RECOGNITION_URL, signal);
   const bestResult = normalizeFoodRecognitionResults(results)[0];
 
   return bestResult && bestResult.score >= FOOD_RECOGNITION_MIN_SCORE ? bestResult : null;
@@ -35,7 +36,20 @@ export function normalizeFoodRecognitionResults(value: unknown): FoodRecognition
     .sort((left, right) => right.score - left.score);
 }
 
-async function classifyFoodImageInBrowser(imageDataUrl: string, signal?: AbortSignal): Promise<FoodRecognitionResult[]> {
+function resolveFoodRelay(endpoint: string): string {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error("Food recognition requires an absolute HTTPS relay URL.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error("Food recognition requires an HTTPS relay URL without embedded credentials.");
+  }
+  return url.href;
+}
+
+async function classifyFoodImageInBrowser(imageDataUrl: string, endpoint: string, signal?: AbortSignal): Promise<FoodRecognitionResult[]> {
   const image = dataUrlToBlob(imageDataUrl);
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), FOOD_RECOGNITION_TIMEOUT_MS);
@@ -45,8 +59,10 @@ async function classifyFoodImageInBrowser(imageDataUrl: string, signal?: AbortSi
   signal?.addEventListener("abort", abort, { once: true });
 
   try {
-    const response = await fetch(LOCAL_FOOD_RECOGNITION_URL, {
+    const response = await fetch(endpoint, {
       method: "POST",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
       redirect: "error",
       headers: browserFoodRecognitionHeaders(image.type),
       body: image,

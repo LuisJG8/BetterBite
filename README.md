@@ -123,7 +123,11 @@ For local development or `pnpm preview`, set `HF_TOKEN` in a local `.env` file o
 
 Choose **Scan Food**, then **Start food recognition** to share frames from the camera with Hugging Face. **Stop food recognition** ends sharing. Barcode detection runs on the device.
 
-A packaged Tauri app reads the token from its process environment. Static web hosting needs a same-origin backend implementing `/api/food-recognition`. A mobile distribution needs a service that holds the provider token before offering shared inference to its users.
+For Android and iOS distribution, set `VITE_FOOD_RECOGNITION_ENDPOINT` at build time to the absolute HTTPS URL of your own recognition service. Keep the Hugging Face token on that service. The URL ships with the app and must contain no credentials or secret query parameters. Add the service’s exact origin to `connect-src` in both `app.security.csp` and `app.security.devCsp` in `src-tauri/tauri.conf.json`.
+
+The relay must accept a raw JPEG, PNG, or WebP body by POST and return a JSON array such as `[{"label":"banana","score":0.98,"model":"nateraw/food"}]` within 64 KiB. The client omits credentials and rejects redirects. For cross-origin calls, allow the specific origins of the deployed WebViews or website and answer CORS preflight for `POST` with the `Content-Type` header.
+
+With the relay unset, desktop Tauri releases use the provider token in their process environment. Static web hosting can serve a same-origin backend at `/api/food-recognition`.
 
 ## Troubleshooting
 
