@@ -259,7 +259,7 @@
     <h2>Practice Lab</h2>
     <p>Edit the function so cookies return a cleaner sweet snack. Then run the tests. Keep the swap similar: sweet snack to sweet snack.</p>
     <div class="lab">
-      <textarea id="code" spellcheck="false">function suggestSwap(food) {
+      <textarea aria-label="Practice JavaScript" id="code" spellcheck="false">function suggestSwap(food) {
   if (food.category === "soda") {
     return "lower-sugar soda";
   }
@@ -274,7 +274,7 @@
         <button type="button" id="run-tests">Run tests</button>
         <button type="button" id="reset-code">Reset</button>
       </div>
-      <p>Your practice code runs in a locked-down, unique-origin iframe that cannot access this page's DOM or storage.</p>
+      <p>Your practice code runs in an isolated worker. You can reset the exercise at any time.</p>
       <div class="lab-output" id="lab-output" aria-live="polite">Add a cookie rule, then run the tests.</div>
     </div>
 
@@ -307,12 +307,19 @@
       });
     });
 
+    let activeRun;
+
     document.getElementById("reset-code").addEventListener("click", () => {
+      activeRun?.abort();
       document.getElementById("code").value = starterCode;
       output.textContent = "Add a cookie rule, then run the tests.";
     });
 
     document.getElementById("run-tests").addEventListener("click", async () => {
+      activeRun?.abort();
+      const run = new AbortController();
+      activeRun = run;
+      output.textContent = "Running tests…";
       const code = document.getElementById("code").value;
       const tests = [
         {
@@ -333,7 +340,8 @@
       ];
 
       try {
-        const results = await runCodeInSandbox(code, tests);
+        const results = await runCodeInSandbox(code, tests, run.signal);
+        if (run.signal.aborted) return;
 
         const passedCount = results.filter((result) => result.passed).length;
         const lines = results.map((result) => {
@@ -343,62 +351,67 @@
 
         output.textContent = `${passedCount}/${tests.length} tests passed\n\n${lines.join("\n\n")}`;
       } catch (error) {
+        if (run.signal.aborted) return;
         output.textContent = `JavaScript error:\n${error.message}`;
       }
     });
 
-    function runCodeInSandbox(code, tests) {
+    function runCodeInSandbox(code, tests, signal) {
       return new Promise((resolve, reject) => {
         const frame = document.createElement("iframe");
-        const token = crypto.randomUUID();
-        const safeCode = code.replace(/<\/script/gi, "<\\/script");
-        const serializedTests = JSON.stringify(tests).replace(/</g, "\\u003c");
-        const serializedToken = JSON.stringify(token);
-        let timeout;
-
         frame.hidden = true;
         frame.setAttribute("sandbox", "allow-scripts");
 
         const cleanup = () => {
           window.clearTimeout(timeout);
+          signal.removeEventListener("abort", cancel);
           window.removeEventListener("message", handleMessage);
           frame.remove();
         };
 
-        const handleMessage = (event) => {
-          if (event.source !== frame.contentWindow || event.data?.token !== token) {
-            return;
-          }
-
+        const cancel = () => {
           cleanup();
-          if (event.data.ok) {
-            resolve(event.data.results);
-          } else {
-            reject(new Error(event.data.error || "The sandboxed code could not run."));
-          }
+          reject(new Error("Test run cancelled."));
         };
 
-        window.addEventListener("message", handleMessage);
-        timeout = window.setTimeout(() => {
+        const handleMessage = (event) => {
+          if (event.source !== frame.contentWindow) return;
           cleanup();
-          reject(new Error("The sandboxed test run timed out."));
-        }, 2000);
+          if (event.data.ok) resolve(event.data.results);
+          else reject(new Error(event.data.error || "The practice code could not run."));
+        };
 
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error("The test run timed out. Check that your function finishes."));
+        }, 3000);
+        signal.addEventListener("abort", cancel, { once: true });
+        window.addEventListener("message", handleMessage);
+
+        const workerCode = `${code}
+          ;if (typeof suggestSwap !== "function") throw new Error("Define a function named suggestSwap.");
+          const results = ${JSON.stringify(tests)}.map((test) => {
+            const actual = suggestSwap(test.food);
+            return { ...test, actual: String(actual), passed: actual === test.expected };
+          });
+          self.postMessage({ ok: true, results });
+        `;
+        const source = JSON.stringify(workerCode).replace(/</g, "\\u003c");
         frame.srcdoc = `<!doctype html>
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
           <script>
             try {
-              ${safeCode}
-              if (typeof suggestSwap !== "function") {
-                throw new Error("The code must define a function named suggestSwap.");
+              const url = URL.createObjectURL(new Blob([${source}], { type: "text/javascript" }));
+              const worker = new Worker(url);
+              function finish(message) {
+                worker.terminate();
+                URL.revokeObjectURL(url);
+                parent.postMessage(message, "*");
               }
-              const results = ${serializedTests}.map((test) => {
-                const actual = suggestSwap(test.food);
-                return { ...test, actual, passed: actual === test.expected };
-              });
-              parent.postMessage({ token: ${serializedToken}, ok: true, results }, "*");
+              worker.onmessage = event => finish(event.data);
+              worker.onerror = event => finish({ ok: false, error: event.message });
             } catch (error) {
-              parent.postMessage({ token: ${serializedToken}, ok: false, error: error instanceof Error ? error.message : String(error) }, "*");
+              parent.postMessage({ ok: false, error: error.message }, "*");
             }
           <\/script>`;
         document.body.append(frame);

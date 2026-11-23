@@ -115,7 +115,7 @@
 
     @media (max-width: 760px) {
       .grid, .row { grid-template-columns: 1fr; }
-      .row:first-child { display: none; }
+      .row:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
       .cell { padding: 10px 14px; }
     }
 
