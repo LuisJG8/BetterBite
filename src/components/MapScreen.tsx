@@ -1,7 +1,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { AlertTriangle, CheckCircle2, Heart, Leaf, Loader2, LocateFixed, Search, SlidersHorizontal, Star } from "lucide-react";
-import maplibregl, { AttributionControl, Marker, type Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
+import { AttributionControl, Marker, Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_NEARBY_RADIUS_MILES,
@@ -125,7 +125,7 @@ export function MapScreen() {
       return;
     }
 
-    const map = new maplibregl.Map({
+    const map = new MapLibreMap({
       attributionControl: false,
       center: toLngLat(mapCenter),
       container: mapContainerRef.current,
